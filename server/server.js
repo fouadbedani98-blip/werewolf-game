@@ -18,7 +18,29 @@ function generateRoomCode() {
     }
     return code;
 }
+function assignRoles(players){
 
+    const roles = [];
+
+    roles.push("werewolf");
+    roles.push("werewolf");
+
+    roles.push("seer");
+    roles.push("doctor");
+
+    while(roles.length < players.length){
+        roles.push("villager");
+    }
+
+    // خلط الأدوار
+    for(let i = roles.length - 1; i > 0; i--){
+        const j = Math.floor(Math.random() * (i + 1));
+        [roles[i], roles[j]] = [roles[j], roles[i]];
+    }
+
+    return roles;
+
+}
 function broadcastPlayers(code) {
 
     const players = rooms[code].map(p => p.name);
