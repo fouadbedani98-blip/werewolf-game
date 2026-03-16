@@ -1,134 +1,163 @@
-<!DOCTYPE html>
-<html>
-<head>
-<title>Werewolf Game</title>
-</head>
+const express = require("express");
+const http = require("http");
+const WebSocket = require("ws");
 
-<body>
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
-<h1>🐺 Werewolf Game</h1>
+app.use(express.static("client"));
 
-<input id="name" placeholder="Your name">
+let rooms = {};
 
-<br><br>
-
-<button onclick="createRoom()">Create Room</button>
-
-<br><br>
-
-<input id="roomCode" placeholder="Room code">
-<button onclick="joinRoom()">Join Room</button>
-
-<h2 id="room"></h2>
-
-<h3>Players</h3>
-<button onclick="startGame()">Start Game</button>
-
-<ul id="players"></ul>
-
-<h3>Chat</h3>
-
-<input id="chatInput">
-<button onclick="sendChat()">Send</button>
-
-<ul id="chat"></ul>
-
-<script>
-
-const socket = new WebSocket("wss://werewolf-game-fjed.onrender.com");
-
-let playerName="";
-
-socket.onmessage = (event) => {
-
-const data = JSON.parse(event.data);
-if(data.type === "your_role"){
-    alert("Your role is: " + data.role);
-}
-if(data.type==="room_created"){
-document.getElementById("room").innerText="Room: "+data.code;
+// إنشاء كود غرفة
+function generateRoomCode() {
+    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let code = "";
+    for (let i = 0; i < 4; i++) {
+        code += letters[Math.floor(Math.random() * letters.length)];
+    }
+    return code;
 }
 
-if(data.type==="room_joined"){
-document.getElementById("room").innerText="Room: "+data.code;
+// توزيع الأدوار
+function assignRoles(players){
+
+    const roles = [];
+
+    roles.push("werewolf");
+    roles.push("werewolf");
+
+    roles.push("seer");
+    roles.push("doctor");
+
+    while(roles.length < players.length){
+        roles.push("villager");
+    }
+
+    // خلط عشوائي
+    for(let i = roles.length - 1; i > 0; i--){
+        const j = Math.floor(Math.random() * (i + 1));
+        [roles[i], roles[j]] = [roles[j], roles[i]];
+    }
+
+    return roles;
 }
 
-if(data.type==="player_list"){
+// إرسال قائمة اللاعبين
+function broadcastPlayers(code){
 
-const list=document.getElementById("players");
-list.innerHTML="";
+    const players = rooms[code].map(p => p.name);
 
-data.players.forEach(p=>{
-const li=document.createElement("li");
-li.innerText=p;
-list.appendChild(li);
+    rooms[code].forEach(player => {
+        player.socket.send(JSON.stringify({
+            type:"player_list",
+            players:players
+        }));
+    });
+
+}
+
+wss.on("connection", (ws) => {
+
+    ws.on("message", (message) => {
+
+        const data = JSON.parse(message);
+
+        // إنشاء غرفة
+        if(data.type === "create_room"){
+
+            const code = generateRoomCode();
+
+            rooms[code] = [];
+
+            const player = {
+                name: data.name,
+                socket: ws
+            };
+
+            rooms[code].push(player);
+            ws.room = code;
+
+            ws.send(JSON.stringify({
+                type:"room_created",
+                code:code
+            }));
+
+            broadcastPlayers(code);
+        }
+
+        // دخول غرفة
+        if(data.type === "join_room"){
+
+            const code = data.code;
+
+            if(rooms[code]){
+
+                const player = {
+                    name:data.name,
+                    socket:ws
+                };
+
+                rooms[code].push(player);
+                ws.room = code;
+
+                ws.send(JSON.stringify({
+                    type:"room_joined",
+                    code:code
+                }));
+
+                broadcastPlayers(code);
+            }
+        }
+
+        // بدء اللعبة
+        if(data.type === "start_game"){
+
+            const code = ws.room;
+            const room = rooms[code];
+
+            if(!room) return;
+
+            const roles = assignRoles(room);
+
+            room.forEach((player, index) => {
+
+                player.role = roles[index];
+
+                player.socket.send(JSON.stringify({
+                    type:"your_role",
+                    role:player.role
+                }));
+
+            });
+
+        }
+
+        // الدردشة
+        if(data.type === "chat"){
+
+            const code = ws.room;
+            const room = rooms[code];
+
+            if(!room) return;
+
+            room.forEach(player => {
+
+                player.socket.send(JSON.stringify({
+                    type:"chat",
+                    name:data.name,
+                    message:data.message
+                }));
+
+            });
+
+        }
+
+    });
+
 });
 
-}
-
-if(data.type==="role"){
-alert("Your role is: "+data.role);
-}
-
-if(data.type==="chat"){
-
-const chat=document.getElementById("chat");
-
-const li=document.createElement("li");
-li.innerText=data.name+": "+data.message;
-
-chat.appendChild(li);
-
-}
-
-};
-
-function createRoom(){
-
-playerName=document.getElementById("name").value;
-
-socket.send(JSON.stringify({
-type:"create_room",
-name:playerName
-}));
-
-}
-
-function joinRoom(){
-
-playerName=document.getElementById("name").value;
-
-const code=document.getElementById("roomCode").value;
-
-socket.send(JSON.stringify({
-type:"join_room",
-name:playerName,
-code:code
-}));
-
-}
-
-function startGame(){
-
-socket.send(JSON.stringify({
-type:"start_game"
-}));
-
-}
-
-function sendChat(){
-
-const message=document.getElementById("chatInput").value;
-
-socket.send(JSON.stringify({
-type:"chat",
-name:playerName,
-message:message
-}));
-
-}
-
-</script>
-
-</body>
-</html>
+server.listen(3000, ()=>{
+    console.log("Server running at http://localhost:3000");
+});
