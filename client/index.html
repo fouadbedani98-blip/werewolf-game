@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Werewolf Game</title>
+</head>
+
+<body>
+
+<h1>🐺 Werewolf Game</h1>
+
+<input id="name" placeholder="Your name">
+
+<br><br>
+
+<button onclick="createRoom()">Create Room</button>
+
+<br><br>
+
+<input id="roomCode" placeholder="Room code">
+<button onclick="joinRoom()">Join Room</button>
+
+<h2 id="room"></h2>
+
+<h3>Players</h3>
+<button onclick="startGame()">Start Game</button>
+
+<ul id="players"></ul>
+
+<h3>Chat</h3>
+
+<input id="chatInput">
+<button onclick="sendChat()">Send</button>
+
+<ul id="chat"></ul>
+
+<script>
+
+const socket = new WebSocket("ws://localhost:3000");
+
+let playerName="";
+
+socket.onmessage = (event) => {
+
+const data = JSON.parse(event.data);
+
+if(data.type==="room_created"){
+document.getElementById("room").innerText="Room: "+data.code;
+}
+
+if(data.type==="room_joined"){
+document.getElementById("room").innerText="Room: "+data.code;
+}
+
+if(data.type==="player_list"){
+
+const list=document.getElementById("players");
+list.innerHTML="";
+
+data.players.forEach(p=>{
+const li=document.createElement("li");
+li.innerText=p;
+list.appendChild(li);
+});
+
+}
+
+if(data.type==="role"){
+alert("Your role is: "+data.role);
+}
+
+if(data.type==="chat"){
+
+const chat=document.getElementById("chat");
+
+const li=document.createElement("li");
+li.innerText=data.name+": "+data.message;
+
+chat.appendChild(li);
+
+}
+
+};
+
+function createRoom(){
+
+playerName=document.getElementById("name").value;
+
+socket.send(JSON.stringify({
+type:"create_room",
+name:playerName
+}));
+
+}
+
+function joinRoom(){
+
+playerName=document.getElementById("name").value;
+
+const code=document.getElementById("roomCode").value;
+
+socket.send(JSON.stringify({
+type:"join_room",
+name:playerName,
+code:code
+}));
+
+}
+
+function startGame(){
+
+socket.send(JSON.stringify({
+type:"start_game"
+}));
+
+}
+
+function sendChat(){
+
+const message=document.getElementById("chatInput").value;
+
+socket.send(JSON.stringify({
+type:"chat",
+name:playerName,
+message:message
+}));
+
+}
+
+</script>
+
+</body>
+</html>
