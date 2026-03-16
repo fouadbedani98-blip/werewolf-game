@@ -42,7 +42,9 @@ let playerName="";
 socket.onmessage = (event) => {
 
 const data = JSON.parse(event.data);
-
+if(data.type === "your_role"){
+    alert("Your role is: " + data.role);
+}
 if(data.type==="room_created"){
 document.getElementById("room").innerText="Room: "+data.code;
 }

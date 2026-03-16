@@ -7,7 +7,28 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 app.use(express.static("client"));
+function assignRoles(players){
 
+    const roles = [];
+
+    roles.push("werewolf");
+    roles.push("werewolf");
+
+    roles.push("seer");
+    roles.push("doctor");
+
+    while(roles.length < players.length){
+        roles.push("villager");
+    }
+
+    // خلط عشوائي
+    for(let i = roles.length - 1; i > 0; i--){
+        const j = Math.floor(Math.random() * (i + 1));
+        [roles[i], roles[j]] = [roles[j], roles[i]];
+    }
+
+    return roles;
+}
 let rooms = {};
 
 function generateRoomCode() {
@@ -129,27 +150,26 @@ wss.on("connection", (ws) => {
 
         }
 
-        if(data.type === "start_game"){
+if(data.type === "start_game"){
 
-            const code = ws.room;
+    const room = rooms[player.room];
 
-            assignRoles(code);
+    if(!room) return;
 
-        }
+    const roles = assignRoles(room.players);
 
-        if(data.type === "chat"){
+    room.players.forEach((p, index) => {
 
-            const code = ws.room;
+        p.role = roles[index];
 
-            rooms[code].forEach(player=>{
-                player.socket.send(JSON.stringify({
-                    type:"chat",
-                    name:data.name,
-                    message:data.message
-                }));
-            });
+        p.socket.send(JSON.stringify({
+            type: "your_role",
+            role: p.role
+        }));
 
-        }
+    });
+
+}
 
     });
 
