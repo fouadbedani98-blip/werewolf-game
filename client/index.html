@@ -1,66 +1,165 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Werewolf Pro</title>
-<link rel="stylesheet" href="style.css">
+<title>Werewolf PRO MAX</title>
+
 <style>
-#phase {
-    font-size: 24px;
-    transition: 0.5s;
+body {
+    background: #0f172a;
+    color: white;
+    font-family: Arial;
+    text-align: center;
 }
+
+.card {
+    background: #1e293b;
+    padding: 20px;
+    margin: 10px auto;
+    border-radius: 15px;
+    width: 300px;
+}
+
+button {
+    padding: 10px;
+    margin: 5px;
+    border-radius: 8px;
+    border: none;
+    background: #ef4444;
+    color: white;
+}
+
 .fade {
     animation: fade 0.5s;
 }
+
 @keyframes fade {
     from {opacity:0;}
     to {opacity:1;}
 }
 </style>
+
 </head>
 
 <body>
 
-<h1>🐺 Werewolf Pro</h1>
+<h1>🐺 Werewolf PRO MAX</h1>
 
-<input id="name" placeholder="Your name">
+<div class="card">
+<input id="name" placeholder="Your name"><br><br>
+<button onclick="quickPlay()">🌍 Quick Play</button>
+</div>
 
-<br><br>
-
-<button onclick="createRoom()">Create Room</button>
-
-<br><br>
-
-<input id="roomCode" placeholder="Room code">
-<button onclick="joinRoom()">Join Room</button>
-
-<h2 id="room"></h2>
-
-<h3 id="phase">Phase: Lobby</h3>
+<h2 id="phase">Lobby</h2>
 <h3 id="timer"></h3>
 
-<h3 id="readyStatus"></h3>
-<button onclick="ready()">✅ Ready</button>
+<div class="card">
+<input id="target" placeholder="Target">
+<button onclick="kill()">🐺</button>
+<button onclick="save()">💉</button>
+<button onclick="see()">🔮</button>
+<button onclick="vote()">🗳️</button>
+</div>
 
-<ul id="players"></ul>
-
-<h3>Actions</h3>
-
-<input id="target" placeholder="Target name">
-
-<br><br>
-
-<button onclick="kill()">🐺 Kill</button>
-<button onclick="save()">💉 Save</button>
-<button onclick="see()">🔮 See</button>
-<button onclick="vote()">🗳️ Vote</button>
-
-<h3>Chat</h3>
+<ul id="chat"></ul>
 
 <input id="chatInput">
 <button onclick="sendChat()">Send</button>
 
-<ul id="chat"></ul>
+<!-- 🔊 Sounds -->
+<audio id="nightSound" src="https://www.myinstants.com/media/sounds/wolf-howl.mp3"></audio>
+<audio id="daySound" src="https://www.myinstants.com/media/sounds/rooster.mp3"></audio>
+<audio id="killSound" src="https://www.myinstants.com/media/sounds/slash.mp3"></audio>
 
-<script src="app.js"></script>
+<script>
+
+const socket = new WebSocket(
+ (location.protocol==="https:"?"wss://":"ws://")+location.host
+);
+
+socket.onmessage=(e)=>{
+const d=JSON.parse(e.data);
+
+if(d.type==="searching") alert("Searching players...");
+
+if(d.type==="your_role") alert("Role: "+d.role);
+
+if(d.type==="night_start"){
+setPhase("Night 🌙");
+play("nightSound");
+startTimer(d.time);
+}
+
+if(d.type==="day_start"){
+setPhase("Day ☀️");
+play("daySound");
+alert("Dead: "+d.dead);
+startTimer(d.time);
+}
+
+if(d.type==="player_killed"){
+play("killSound");
+alert("Executed: "+d.name);
+}
+
+if(d.type==="game_over"){
+alert(d.message);
+}
+
+if(d.type==="chat"){
+addChat(d.name,d.message);
+}
+};
+
+function setPhase(t){
+document.getElementById("phase").innerText=t;
+}
+
+function startTimer(seconds){
+let t=seconds;
+const el=document.getElementById("timer");
+
+const interval=setInterval(()=>{
+el.innerText="⏳ "+t;
+t--;
+if(t<0) clearInterval(interval);
+},1000);
+}
+
+function play(id){
+document.getElementById(id).play();
+}
+
+function quickPlay(){
+socket.send(JSON.stringify({type:"quick_play"}));
+}
+
+function kill(){ send("kill"); }
+function save(){ send("save"); }
+function see(){ send("see"); }
+function vote(){ send("vote"); }
+
+function send(type){
+socket.send(JSON.stringify({
+type,
+target:document.getElementById("target").value
+}));
+}
+
+function sendChat(){
+socket.send(JSON.stringify({
+type:"chat",
+name:"You",
+message:chatInput.value
+}));
+}
+
+function addChat(n,m){
+const li=document.createElement("li");
+li.innerText=n+": "+m;
+document.getElementById("chat").appendChild(li);
+}
+
+</script>
+
 </body>
 </html>

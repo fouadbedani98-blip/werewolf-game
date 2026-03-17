@@ -9,14 +9,10 @@ const wss = new WebSocket.Server({ server });
 app.use(express.static("client"));
 
 let rooms = {};
+let waitingPlayers = [];
 
-const NIGHT_TIME = 15000; // 15s
-const DAY_TIME = 20000;   // 20s
-
-function generateRoomCode() {
-    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    return Array.from({length:4},()=>letters[Math.floor(Math.random()*26)]).join("");
-}
+const NIGHT_TIME = 10000;
+const DAY_TIME = 15000;
 
 function assignRoles(players){
     const roles = ["werewolf","werewolf","seer","doctor"];
@@ -29,15 +25,12 @@ function assignRoles(players){
     return roles;
 }
 
-function broadcast(room, data){
+function broadcast(room,data){
     room.players.forEach(p=>{
-        p.socket.send(JSON.stringify(data));
+        if(p.socket){
+            p.socket.send(JSON.stringify(data));
+        }
     });
-}
-
-function broadcastPlayers(room){
-    const alive = room.players.filter(p=>p.alive).map(p=>p.name);
-    broadcast(room,{type:"player_list",players:alive});
 }
 
 function checkWin(room){
@@ -50,7 +43,34 @@ function checkWin(room){
     return null;
 }
 
-// ================= NIGHT =================
+// 🤖 BOT ACTION
+function botPlay(room){
+
+    room.players.forEach(p=>{
+        if(p.isBot && p.alive){
+
+            if(room.phase==="night"){
+                if(p.role==="werewolf"){
+                    const targets = room.players.filter(x=>x.alive && x.role!=="werewolf");
+                    if(targets.length){
+                        room.nightKill = targets[Math.floor(Math.random()*targets.length)].name;
+                    }
+                }
+                if(p.role==="doctor"){
+                    const targets = room.players.filter(x=>x.alive);
+                    room.doctorSave = targets[Math.floor(Math.random()*targets.length)].name;
+                }
+            }
+
+            if(room.phase==="day"){
+                const targets = room.players.filter(x=>x.alive);
+                const vote = targets[Math.floor(Math.random()*targets.length)].name;
+                room.votes[vote] = (room.votes[vote]||0)+1;
+            }
+        }
+    });
+}
+
 function startNight(room){
 
     room.phase="night";
@@ -59,12 +79,12 @@ function startNight(room){
 
     broadcast(room,{type:"night_start",time:NIGHT_TIME/1000});
 
-    room.timer = setTimeout(()=>{
+    setTimeout(()=>{
+        botPlay(room);
         endNight(room);
     },NIGHT_TIME);
 }
 
-// ================= END NIGHT =================
 function endNight(room){
 
     let dead=null;
@@ -79,8 +99,6 @@ function endNight(room){
 
     broadcast(room,{type:"day_start",dead:dead||"No one",time:DAY_TIME/1000});
 
-    broadcastPlayers(room);
-
     const win = checkWin(room);
     if(win){
         broadcast(room,{type:"game_over",message:win});
@@ -90,31 +108,29 @@ function endNight(room){
     room.phase="day";
     room.votes={};
 
-    room.timer = setTimeout(()=>{
+    setTimeout(()=>{
+        botPlay(room);
         endDay(room);
     },DAY_TIME);
 }
 
-// ================= END DAY =================
 function endDay(room){
 
-    let max=0, target=null;
+    let max=0,target=null;
 
-    for(let name in room.votes){
-        if(room.votes[name]>max){
-            max=room.votes[name];
-            target=name;
+    for(let n in room.votes){
+        if(room.votes[n]>max){
+            max=room.votes[n];
+            target=n;
         }
     }
 
     if(target){
-        const player = room.players.find(p=>p.name===target);
-        if(player) player.alive=false;
+        const p=room.players.find(x=>x.name===target);
+        if(p) p.alive=false;
     }
 
     broadcast(room,{type:"player_killed",name:target||"No one"});
-
-    broadcastPlayers(room);
 
     const win = checkWin(room);
     if(win){
@@ -125,6 +141,48 @@ function endDay(room){
     startNight(room);
 }
 
+// 🌍 MATCHMAKING
+function tryMatchmaking(){
+
+    if(waitingPlayers.length >= 2){
+
+        const roomId = "MM"+Math.floor(Math.random()*9999);
+
+        const players = waitingPlayers.splice(0,2);
+
+        rooms[roomId] = {
+            players: [],
+            phase:"lobby"
+        };
+
+        players.forEach(ws=>{
+            const player = {name:"Player",socket:ws,alive:true};
+            rooms[roomId].players.push(player);
+            ws.room = roomId;
+            ws.send(JSON.stringify({type:"room_joined",code:roomId}));
+        });
+
+        // 🤖 add bots
+        while(rooms[roomId].players.length < 6){
+            rooms[roomId].players.push({
+                name:"Bot"+Math.floor(Math.random()*100),
+                isBot:true,
+                alive:true
+            });
+        }
+
+        const roles = assignRoles(rooms[roomId].players);
+        rooms[roomId].players.forEach((p,i)=>{
+            p.role=roles[i];
+            if(p.socket){
+                p.socket.send(JSON.stringify({type:"your_role",role:p.role}));
+            }
+        });
+
+        startNight(rooms[roomId]);
+    }
+}
+
 wss.on("connection",(ws)=>{
 
 ws.on("message",(msg)=>{
@@ -133,127 +191,37 @@ const data = JSON.parse(msg);
 const room = rooms[ws.room];
 const sender = room?.players.find(p=>p.socket===ws);
 
-// منع الميتين
-if(sender && !sender.alive) return;
-
-// CREATE
-if(data.type==="create_room"){
-
-    const code=generateRoomCode();
-
-    rooms[code]={
-        players:[],
-        readyCount:0,
-        phase:"lobby"
-    };
-
-    const player={name:data.name,socket:ws,alive:true,role:null,ready:false};
-
-    rooms[code].players.push(player);
-    ws.room=code;
-
-    ws.send(JSON.stringify({type:"room_created",code}));
-    broadcastPlayers(rooms[code]);
-}
-
-// JOIN
-if(data.type==="join_room"){
-
-    const room=rooms[data.code];
-    if(!room) return;
-
-    const player={name:data.name,socket:ws,alive:true,role:null,ready:false};
-
-    room.players.push(player);
-    ws.room=data.code;
-
-    ws.send(JSON.stringify({type:"room_joined",code:data.code}));
-    broadcastPlayers(room);
-}
-
-// READY SYSTEM
-if(data.type==="ready"){
-
-    if(!room) return;
-
-    sender.ready=true;
-
-    const readyCount = room.players.filter(p=>p.ready).length;
-
-    broadcast(room,{
-        type:"ready_update",
-        ready:readyCount,
-        total:room.players.length
-    });
-
-    if(readyCount === room.players.length){
-
-        const roles = assignRoles(room.players);
-
-        room.players.forEach((p,i)=>{
-            p.role=roles[i];
-            p.socket.send(JSON.stringify({type:"your_role",role:p.role}));
-        });
-
-        startNight(room);
-    }
+// MATCHMAKING
+if(data.type==="quick_play"){
+    waitingPlayers.push(ws);
+    ws.send(JSON.stringify({type:"searching"}));
+    tryMatchmaking();
 }
 
 // ACTIONS
-if(data.type==="kill"){
-    if(room.phase==="night" && sender.role==="werewolf"){
-        room.nightKill=data.target;
-    }
+if(data.type==="kill" && sender?.role==="werewolf"){
+    room.nightKill=data.target;
 }
 
-if(data.type==="save"){
-    if(room.phase==="night" && sender.role==="doctor"){
-        room.doctorSave=data.target;
-    }
+if(data.type==="save" && sender?.role==="doctor"){
+    room.doctorSave=data.target;
 }
 
-if(data.type==="see"){
-    if(sender.role==="seer"){
-        const target=room.players.find(p=>p.name===data.target);
-        sender.socket.send(JSON.stringify({
-            type:"seer_result",
-            role:target?target.role:"unknown"
-        }));
-    }
+if(data.type==="see" && sender?.role==="seer"){
+    const t=room.players.find(p=>p.name===data.target);
+    ws.send(JSON.stringify({type:"seer_result",role:t?t.role:"unknown"}));
 }
 
-// VOTE
 if(data.type==="vote"){
-    if(room.phase!=="day") return;
     room.votes[data.target]=(room.votes[data.target]||0)+1;
 }
 
-// CHAT
 if(data.type==="chat"){
-
-    if(room.phase==="night"){
-        if(sender.role==="werewolf"){
-            room.players.forEach(p=>{
-                if(p.role==="werewolf"){
-                    p.socket.send(JSON.stringify({
-                        type:"chat",
-                        name:data.name,
-                        message:data.message
-                    }));
-                }
-            });
-        }
-    } else {
-        broadcast(room,{
-            type:"chat",
-            name:data.name,
-            message:data.message
-        });
-    }
+    broadcast(room,{type:"chat",name:data.name,message:data.message});
 }
 
 });
 
 });
 
-server.listen(3000,()=>console.log("PRO server running"));
+server.listen(3000,()=>console.log("🔥 PRO MAX server running"));
