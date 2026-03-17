@@ -8,9 +8,9 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
 <style>
-body { background:#0f172a; color:white; text-align:center; }
-.card { background:#1e293b; padding:20px; margin:10px auto; width:320px; border-radius:15px; }
-button { padding:10px; margin:5px; background:#ef4444; border:none; color:white; }
+body { background:#0f172a; color:white; text-align:center; font-family:sans-serif;}
+.card { background:#1e293b; padding:20px; margin:10px auto; width:320px; border-radius:15px;}
+button { padding:10px; margin:5px; background:#ef4444; border:none; color:white;}
 </style>
 </head>
 
@@ -21,7 +21,7 @@ button { padding:10px; margin:5px; background:#ef4444; border:none; color:white;
 <div class="card">
 <input id="name" placeholder="Name"><br><br>
 <button onclick="playGuest()">🎮 Guest</button>
-<button onclick="quickPlay()">⚡ Quick Play (Account)</button>
+<button onclick="quickPlay()">⚡ Quick Match</button>
 </div>
 
 <div class="card">
@@ -32,44 +32,61 @@ button { padding:10px; margin:5px; background:#ef4444; border:none; color:white;
 <p id="userInfo"></p>
 </div>
 
-<!-- 🏆 Leaderboard -->
+<div class="card">
+<h2>👤 Profile</h2>
+<p id="profileEmail"></p>
+<p id="profileLevel"></p>
+<p id="profileRank"></p>
+<p id="profileXP"></p>
+</div>
+
 <div class="card">
 <h2>🏆 Leaderboard</h2>
 <ul id="leaderboard"></ul>
-<button onclick="loadLeaderboard()">🔄 Refresh</button>
+<button onclick="loadLeaderboard()">Refresh</button>
 </div>
-
-<h2 id="phase">Lobby</h2>
-
-<input id="target" placeholder="Target"><br>
-<button onclick="kill()">🐺</button>
-<button onclick="save()">💉</button>
-<button onclick="see()">🔮</button>
-<button onclick="vote()">🗳️</button>
-
-<ul id="chat"></ul>
-<input id="chatInput">
-<button onclick="sendChat()">Send</button>
 
 <script>
 
 // Firebase
 const firebaseConfig = {
-  apiKey: "AIzaSyB9xf5ZR5MbR0Rs7T0rc2rZwtfOUn2ZqnE",
-  authDomain: "nightmind-82dba.firebaseapp.com",
-  projectId: "nightmind-82dba"
+apiKey:"AIzaSyB9xf...",
+authDomain:"nightmind-82dba.firebaseapp.com",
+projectId:"nightmind-82dba"
 };
 
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 
-// Socket
 const socket = new WebSocket(
- (location.protocol==="https:"?"wss://":"ws://")+location.host
+(location.protocol==="https:"?"wss://":"ws://")+location.host
 );
 
-// Guest
+// XP SYSTEM
+function getLevel(xp){
+return Math.floor(0.1 * Math.sqrt(xp)) + 1;
+}
+
+function getRank(xp){
+if(xp < 500) return "Bronze";
+if(xp < 1500) return "Silver";
+if(xp < 3000) return "Gold";
+if(xp < 6000) return "Platinum";
+if(xp < 10000) return "Diamond";
+return "Master";
+}
+
+// AUTH
+function register(){
+auth.createUserWithEmailAndPassword(email.value,password.value)
+.then(()=>createUserDoc(auth.currentUser));
+}
+
+function login(){
+auth.signInWithEmailAndPassword(email.value,password.value);
+}
+
 function playGuest(){
 socket.send(JSON.stringify({
 type:"quick_play",
@@ -77,12 +94,8 @@ name:name.value
 }));
 }
 
-// Account play
 function quickPlay(){
-if(!auth.currentUser){
-alert("login first");
-return;
-}
+if(!auth.currentUser){ alert("login first"); return; }
 
 socket.send(JSON.stringify({
 type:"quick_play",
@@ -91,80 +104,39 @@ email:auth.currentUser.email
 }));
 }
 
-// Auth
-function register(){
-auth.createUserWithEmailAndPassword(email.value,password.value)
-.then(()=>createUserDoc(auth.currentUser))
-.catch(e=>alert(e.message));
-}
-
-function login(){
-auth.signInWithEmailAndPassword(email.value,password.value)
-.catch(e=>alert(e.message));
-}
-
-auth.onAuthStateChanged(user=>{
-if(user){
-userInfo.innerText="Logged as "+user.email;
-loadLeaderboard();
-}
-});
-
 // Create user
 function createUserDoc(user){
 db.collection("users").doc(user.uid).set({
 email:user.email,
 wins:0,
 losses:0,
-games:0
+games:0,
+xp:0,
+level:1,
+rank:"Bronze",
+joinDate:new Date()
 });
 }
 
-// 🏆 LOAD LEADERBOARD
-async function loadLeaderboard(){
+// PROFILE UI
+auth.onAuthStateChanged(async user=>{
+if(user){
 
-leaderboard.innerHTML="Loading...";
+userInfo.innerText="Logged as "+user.email;
 
-const snapshot = await db.collection("users")
-.orderBy("wins","desc")
-.limit(10)
-.get();
+const doc = await db.collection("users").doc(user.uid).get();
+const d = doc.data();
 
-leaderboard.innerHTML="";
+profileEmail.innerText="Email: "+d.email;
+profileLevel.innerText="Level: "+d.level;
+profileRank.innerText="Rank: "+d.rank;
+profileXP.innerText="XP: "+d.xp;
 
-snapshot.forEach(doc=>{
-const u = doc.data();
-
-const li=document.createElement("li");
-li.innerText = `${u.email} - 🏆 ${u.wins} wins`;
-leaderboard.appendChild(li);
+loadLeaderboard();
+}
 });
 
-}
-
-// Actions
-function send(type){
-socket.send(JSON.stringify({
-type,
-target:target.value
-}));
-}
-
-function kill(){send("kill");}
-function save(){send("save");}
-function see(){send("see");}
-function vote(){send("vote");}
-
-// Chat
-function sendChat(){
-socket.send(JSON.stringify({
-type:"chat",
-name:"You",
-message:chatInput.value
-}));
-}
-
-// Update stats
+// UPDATE STATS
 socket.onmessage = async (e)=>{
 const d = JSON.parse(e.data);
 
@@ -174,20 +146,41 @@ const ref = db.collection("users").doc(auth.currentUser.uid);
 const doc = await ref.get();
 const data = doc.data();
 
+const xpGain = d.win ? 100 : 40;
+const newXP = data.xp + xpGain;
+
 await ref.update({
 games: data.games + 1,
 wins: data.wins + (d.win ? 1 : 0),
-losses: data.losses + (d.win ? 0 : 1)
+losses: data.losses + (d.win ? 0 : 1),
+xp: newXP,
+level: getLevel(newXP),
+rank: getRank(newXP)
 });
 
-loadLeaderboard();
+alert("XP +" + xpGain);
 }
-
-if(d.type==="game_over"){
-alert(d.message);
-}
-
 };
+
+// Leaderboard
+async function loadLeaderboard(){
+
+leaderboard.innerHTML="Loading...";
+
+const snap = await db.collection("users")
+.orderBy("xp","desc")
+.limit(10)
+.get();
+
+leaderboard.innerHTML="";
+
+snap.forEach(doc=>{
+const u = doc.data();
+const li=document.createElement("li");
+li.innerText = `${u.email} - ${u.xp} XP (${u.rank})`;
+leaderboard.appendChild(li);
+});
+}
 
 </script>
 
