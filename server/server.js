@@ -6,264 +6,250 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-app.use(express.static("client"));
+app.use(express.static("."));
 
 let rooms = {};
+let queue = [];
 
-const NIGHT_TIME = 10000;
-const DAY_TIME = 15000;
+function send(ws,data){
+  if(ws.readyState===1) ws.send(JSON.stringify(data));
+}
 
-// 📢 Broadcast
 function broadcast(room,data){
-    room.players.forEach(p=>{
-        if(p.socket){
-            p.socket.send(JSON.stringify(data));
-        }
-    });
+  room.players.forEach(p=>send(p.ws,data));
 }
 
-// 🎭 Roles
-function assignRoles(players){
-    const roles=["werewolf","seer","doctor"];
-    while(roles.length<players.length) roles.push("villager");
-    return roles.sort(()=>Math.random()-0.5);
-}
-
-// 🧠 Lobby update
 function updateLobby(room){
-    broadcast(room,{
-        type:"lobby_update",
-        players: room.players.map(p=>({
-            name:p.name,
-            ready:p.ready,
-            host:p.host
-        }))
-    });
+  broadcast(room,{
+    type:"lobby",
+    players:room.players.map(p=>({
+      name:p.name,
+      ready:p.ready,
+      alive:p.alive,
+      host:p.host
+    }))
+  });
 }
 
-// 🧠 Win check
+function assignRoles(players){
+  let roles=["werewolf","doctor","seer"];
+  while(roles.length<players.length) roles.push("villager");
+  return roles.sort(()=>Math.random()-0.5);
+}
+
 function checkWin(room){
-    const alive = room.players.filter(p=>p.alive);
-    const wolves = alive.filter(p=>p.role==="werewolf").length;
-    const villagers = alive.length - wolves;
+  const alive=room.players.filter(p=>p.alive);
+  const wolves=alive.filter(p=>p.role==="werewolf").length;
+  const others=alive.length-wolves;
 
-    if(wolves===0) return "villagers";
-    if(wolves>=villagers) return "werewolves";
-    return null;
+  if(wolves===0) return "Villagers Win";
+  if(wolves>=others) return "Werewolves Win";
+  return null;
 }
 
-// 💾 XP
-function saveStats(room, winner){
-    room.players.forEach(p=>{
-        if(!p.email) return;
+// ---------- GAME ----------
 
-        const win =
-        (winner==="villagers" && p.role!=="werewolf") ||
-        (winner==="werewolves" && p.role==="werewolf");
-
-        p.socket.send(JSON.stringify({
-            type:"update_stats",
-            win
-        }));
-    });
-}
-
-// 🌙 Night
-function startNight(room){
-    room.phase="night";
-    room.nightKill=null;
-    room.doctorSave=null;
-
-    broadcast(room,{type:"night_start"});
-
-    setTimeout(()=>endNight(room),NIGHT_TIME);
-}
-
-// ☀️ End night
-function endNight(room){
-
-    let dead=null;
-
-    if(room.nightKill !== room.doctorSave){
-        const p = room.players.find(x=>x.name===room.nightKill);
-        if(p){
-            p.alive=false;
-            dead=p.name;
-        }
-    }
-
-    broadcast(room,{type:"day_start",dead:dead || "No one"});
-
-    const win = checkWin(room);
-    if(win){
-        saveStats(room,win);
-        broadcast(room,{type:"game_over",message:win});
-        return;
-    }
-
-    room.phase="day";
-    room.votes={};
-
-    setTimeout(()=>endDay(room),DAY_TIME);
-}
-
-// 🗳️ End day
-function endDay(room){
-
-    let max=0,target=null;
-
-    for(let n in room.votes){
-        if(room.votes[n]>max){
-            max=room.votes[n];
-            target=n;
-        }
-    }
-
-    if(target){
-        const p = room.players.find(x=>x.name===target);
-        if(p) p.alive=false;
-    }
-
-    broadcast(room,{type:"player_killed",name:target || "No one"});
-
-    const win = checkWin(room);
-    if(win){
-        saveStats(room,win);
-        broadcast(room,{type:"game_over",message:win});
-        return;
-    }
-
-    startNight(room);
-}
-
-// ▶️ Start game
 function startGame(room){
+  const roles=assignRoles(room.players);
 
-    const roles = assignRoles(room.players);
+  room.players.forEach((p,i)=>{
+    p.role=roles[i];
+    p.alive=true;
+  });
 
-    room.players.forEach((p,i)=>{
-        p.role=roles[i];
-        p.alive=true;
+  broadcast(room,{type:"game_started"});
+
+  room.players.forEach(p=>{
+    send(p.ws,{type:"role",role:p.role});
+  });
+
+  startNight(room);
+}
+
+function startNight(room){
+  room.phase="night";
+  room.kill=null;
+  room.save=null;
+
+  broadcast(room,{type:"phase",value:"night"});
+  setTimeout(()=>endNight(room),8000);
+}
+
+function endNight(room){
+  let dead=null;
+
+  if(room.kill && room.kill!==room.save){
+    const target=room.players.find(p=>p.name===room.kill);
+    if(target){ target.alive=false; dead=target.name; }
+  }
+
+  broadcast(room,{type:"night_result",dead});
+
+  const win=checkWin(room);
+  if(win){
+    broadcast(room,{type:"game_over",msg:win});
+    return;
+  }
+
+  room.votes={};
+  startDay(room);
+}
+
+function startDay(room){
+  room.phase="day";
+  broadcast(room,{type:"phase",value:"day"});
+  setTimeout(()=>endDay(room),10000);
+}
+
+function endDay(room){
+  let max=0,target=null;
+
+  for(let name in room.votes){
+    if(room.votes[name]>max){
+      max=room.votes[name];
+      target=name;
+    }
+  }
+
+  if(target){
+    const p=room.players.find(x=>x.name===target);
+    if(p) p.alive=false;
+  }
+
+  broadcast(room,{type:"day_result",killed:target});
+
+  const win=checkWin(room);
+  if(win){
+    broadcast(room,{type:"game_over",msg:win});
+    return;
+  }
+
+  startNight(room);
+}
+
+// ---------- MATCHMAKING FIX ----------
+
+function tryMatch(){
+  if(queue.length>=2){
+
+    const code=Math.floor(Math.random()*9999).toString();
+    rooms[code]={players:[]};
+
+    const players=queue.splice(0,Math.min(6,queue.length));
+
+    players.forEach(p=>{
+      p.ws.room=code;
+      rooms[code].players.push(p);
+      send(p.ws,{type:"room",code});
     });
 
-    broadcast(room,{type:"game_started"});
-
-    room.players.forEach(p=>{
-        if(p.socket){
-            p.socket.send(JSON.stringify({
-                type:"your_role",
-                role:p.role
-            }));
-        }
-    });
-
-    startNight(room);
+    updateLobby(rooms[code]);
+  }
 }
 
-// 🔌 Connection
-wss.on("connection",(ws)=>{
+// ---------- SOCKET ----------
 
-ws.on("message",(msg)=>{
+wss.on("connection",ws=>{
 
-const data = JSON.parse(msg);
+  ws.on("message",msg=>{
+    const data=JSON.parse(msg);
 
-// 🏠 CREATE
-if(data.type==="create_room"){
+    // QUICK MATCH
+    if(data.type==="quick"){
+      queue.push({
+        name:data.name,
+        ws,
+        ready:true,
+        host:false,
+        alive:true
+      });
+      tryMatch();
+      return;
+    }
 
-const code = Math.floor(Math.random()*9999).toString();
+    // CREATE
+    if(data.type==="create"){
+      const code=Math.floor(Math.random()*9999).toString();
 
-rooms[code]={ players:[] };
+      rooms[code]={players:[]};
 
-const player={
-name:data.name,
-socket:ws,
-ready:false,
-host:true,
-email:data.email || null
-};
+      const player={
+        name:data.name,
+        ws,
+        ready:false,
+        host:true,
+        alive:true
+      };
 
-rooms[code].players.push(player);
-ws.room=code;
+      rooms[code].players.push(player);
+      ws.room=code;
 
-ws.send(JSON.stringify({type:"room_created",code}));
+      send(ws,{type:"room",code});
+      updateLobby(rooms[code]);
+      return;
+    }
 
-updateLobby(rooms[code]);
-}
+    // JOIN
+    if(data.type==="join"){
+      const room=rooms[data.code];
+      if(!room) return;
 
-// 🚪 JOIN
-if(data.type==="join_room"){
+      const player={
+        name:data.name,
+        ws,
+        ready:false,
+        host:false,
+        alive:true
+      };
 
-const room = rooms[data.code];
-if(!room) return;
+      room.players.push(player);
+      ws.room=data.code;
 
-const player={
-name:data.name,
-socket:ws,
-ready:false,
-host:false,
-email:data.email || null
-};
+      send(ws,{type:"room",code:data.code});
+      updateLobby(room);
+      return;
+    }
 
-room.players.push(player);
-ws.room=data.code;
+    const room=rooms[ws.room];
+    if(!room) return;
 
-ws.send(JSON.stringify({type:"room_joined",code:data.code}));
+    const player=room.players.find(p=>p.ws===ws);
 
-updateLobby(room);
-}
+    // READY
+    if(data.type==="ready"){
+      player.ready=!player.ready;
+      updateLobby(room);
+    }
 
-// 🟢 READY
-if(data.type==="toggle_ready"){
+    // START
+    if(data.type==="start"){
+      if(!player.host) return;
+      if(!room.players.every(p=>p.ready)) return;
+      startGame(room);
+    }
 
-const room = rooms[ws.room];
-const player = room.players.find(p=>p.socket===ws);
+    // NIGHT ACTIONS
+    if(room.phase==="night"){
+      if(player.role==="werewolf" && data.type==="kill"){
+        room.kill=data.target;
+      }
+      if(player.role==="doctor" && data.type==="save"){
+        room.save=data.target;
+      }
+      if(player.role==="seer" && data.type==="see"){
+        const t=room.players.find(p=>p.name===data.target);
+        send(ws,{type:"see",role:t?t.role:"unknown"});
+      }
+    }
 
-player.ready = !player.ready;
+    // DAY VOTE
+    if(room.phase==="day" && data.type==="vote"){
+      if(!room.votes[data.target]) room.votes[data.target]=0;
+      room.votes[data.target]++;
+    }
 
-updateLobby(room);
-}
-
-// ▶️ START
-if(data.type==="start_game"){
-
-const room = rooms[ws.room];
-const player = room.players.find(p=>p.socket===ws);
-
-if(!player.host) return;
-
-if(!room.players.every(p=>p.ready)){
-ws.send(JSON.stringify({type:"error",message:"All players must be ready"}));
-return;
-}
-
-startGame(room);
-}
-
-// 🎮 GAME ACTIONS
-const room = rooms[ws.room];
-if(!room) return;
-
-const sender = room.players.find(p=>p.socket===ws);
-
-if(data.type==="kill" && sender.role==="werewolf"){
-room.nightKill=data.target;
-}
-
-if(data.type==="save" && sender.role==="doctor"){
-room.doctorSave=data.target;
-}
-
-if(data.type==="see" && sender.role==="seer"){
-const t = room.players.find(p=>p.name===data.target);
-ws.send(JSON.stringify({type:"seer_result",role:t.role}));
-}
-
-if(data.type==="vote"){
-room.votes[data.target]=(room.votes[data.target]||0)+1;
-}
+  });
 
 });
 
-});
-
-server.listen(3000,()=>console.log("🔥 NightMind FULL SYSTEM READY"));
+server.listen(3000,()=>console.log("🔥 FIXED GAME RUNNING"));

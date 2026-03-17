@@ -1,110 +1,92 @@
 <!DOCTYPE html>
 <html>
-<head>
-<title>NightMind</title>
-
-<style>
-body{background:#020617;color:white;text-align:center;font-family:Arial;}
-.card{background:#1e293b;padding:15px;margin:10px auto;width:340px;border-radius:10px;}
-button{padding:10px;margin:5px;background:#ef4444;color:white;border:none;}
-.ready{color:#22c55e;}
-</style>
-</head>
-
-<body>
+<body style="background:#020617;color:white;text-align:center">
 
 <h1>🐺 NightMind</h1>
 
-<div class="card">
-<input id="name" placeholder="Name"><br>
-<button onclick="createRoom()">Create Room</button>
-</div>
+<input id="name" placeholder="Name">
 
-<div class="card">
-<input id="roomCode" placeholder="Code">
-<button onclick="joinRoom()">Join</button>
-</div>
+<button onclick="guest()">Guest</button>
+<button onclick="quick()">Quick Match</button>
 
-<div class="card">
+<br><br>
+
+<button onclick="create()">Create</button>
+<input id="code" placeholder="Code">
+<button onclick="join()">Join</button>
+
 <h2 id="room"></h2>
 
-<button onclick="toggleReady()">Ready</button>
-<button onclick="startGame()">Start</button>
+<button onclick="ready()">Ready</button>
+<button onclick="start()">Start</button>
 
-<ul id="players"></ul>
-</div>
+<div id="players"></div>
+
+<h3 id="phase">Waiting</h3>
+
+<select id="target"></select><br>
+
+<button onclick="kill()">Kill</button>
+<button onclick="save()">Save</button>
+<button onclick="see()">See</button>
+<button onclick="vote()">Vote</button>
 
 <script>
+const socket=new WebSocket("ws://localhost:3000");
 
-const socket = new WebSocket(
-(location.protocol==="https:"?"wss://":"ws://")+location.host
-);
+let username="",role="";
 
-let playerName="";
-
-socket.onmessage = (e)=>{
-const d = JSON.parse(e.data);
-
-if(d.type==="room_created"||d.type==="room_joined"){
-room.innerText="Room: "+d.code;
+function guest(){
+username=name.value||"Guest"+Math.floor(Math.random()*1000);
+alert(username);
 }
 
-if(d.type==="lobby_update"){
+function create(){
+socket.send(JSON.stringify({type:"create",name:username}));
+}
+
+function join(){
+socket.send(JSON.stringify({type:"join",name:username,code:code.value}));
+}
+
+function quick(){
+socket.send(JSON.stringify({type:"quick",name:username}));
+}
+
+function ready(){ socket.send(JSON.stringify({type:"ready"})); }
+function start(){ socket.send(JSON.stringify({type:"start"})); }
+
+function kill(){ socket.send(JSON.stringify({type:"kill",target:target.value})); }
+function save(){ socket.send(JSON.stringify({type:"save",target:target.value})); }
+function see(){ socket.send(JSON.stringify({type:"see",target:target.value})); }
+function vote(){ socket.send(JSON.stringify({type:"vote",target:target.value})); }
+
+socket.onmessage=e=>{
+const d=JSON.parse(e.data);
+
+if(d.type==="room") room.innerText="Room: "+d.code;
+
+if(d.type==="lobby"){
 players.innerHTML="";
+target.innerHTML="";
+
 d.players.forEach(p=>{
-const li=document.createElement("li");
-li.innerText = `${p.name} ${p.ready?"✅":"❌"} ${p.host?"👑":""}`;
-players.appendChild(li);
+players.innerHTML+=p.name+" "+(p.ready?"✅":"")+"<br>";
+
+if(p.alive){
+target.innerHTML+=`<option>${p.name}</option>`;
+}
 });
 }
 
-if(d.type==="game_started"){
-alert("Game Started!");
-}
-
-if(d.type==="your_role"){
-alert("Your role: "+d.role);
-}
-
-if(d.type==="night_start"){
-console.log("Night...");
-}
-
-if(d.type==="day_start"){
-alert("Dead: "+d.dead);
-}
-
-if(d.type==="game_over"){
-alert("Winner: "+d.message);
-}
+if(d.type==="role"){ role=d.role; alert(role); }
+if(d.type==="phase"){ phase.innerText=d.value; }
+if(d.type==="night_result"){ alert("Dead: "+(d.dead||"No one")); }
+if(d.type==="day_result"){ alert("Killed: "+(d.killed||"No one")); }
+if(d.type==="see"){ alert("Role: "+d.role); }
+if(d.type==="game_over"){ alert(d.msg); }
 
 };
-
-function createRoom(){
-playerName=name.value;
-socket.send(JSON.stringify({
-type:"create_room",
-name:playerName
-}));
-}
-
-function joinRoom(){
-playerName=name.value;
-socket.send(JSON.stringify({
-type:"join_room",
-name:playerName,
-code:roomCode.value
-}));
-}
-
-function toggleReady(){
-socket.send(JSON.stringify({type:"toggle_ready"}));
-}
-
-function startGame(){
-socket.send(JSON.stringify({type:"start_game"}));
-}
-
 </script>
 
 </body>
