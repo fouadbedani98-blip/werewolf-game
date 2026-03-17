@@ -6,7 +6,7 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-app.use(express.static("."));
+app.use(express.static("client"));
 
 let rooms = {};
 let queue = [];
