@@ -43,12 +43,12 @@ function checkWin(room){
     return null;
 }
 
-// ================= SAVE STATS =================
+// 💾 SAVE STATS
 function saveStats(room, winner){
 
     room.players.forEach(p=>{
 
-        if(!p.email) return; // guest skip
+        if(!p.email) return;
 
         const win = (winner==="villagers" && p.role!=="werewolf") ||
                     (winner==="werewolves" && p.role==="werewolf");
@@ -60,7 +60,7 @@ function saveStats(room, winner){
     });
 }
 
-// ================= BOT =================
+// 🤖 BOT
 function botPlay(room){
     room.players.forEach(p=>{
         if(p.isBot && p.alive){
@@ -87,7 +87,7 @@ function botPlay(room){
     });
 }
 
-// ================= NIGHT =================
+// 🌙 NIGHT
 function startNight(room){
     room.phase="night";
     room.nightKill=null;
@@ -159,7 +159,7 @@ function endDay(room){
     startNight(room);
 }
 
-// ================= MATCHMAKING =================
+// 🌍 MATCHMAKING
 function tryMatchmaking(){
 
     if(waitingPlayers.length >= 1){
@@ -202,7 +202,6 @@ function tryMatchmaking(){
     }
 }
 
-// ================= SOCKET =================
 wss.on("connection",(ws)=>{
 
 ws.on("message",(msg)=>{
@@ -244,4 +243,4 @@ if(data.type==="chat"){
 
 });
 
-server.listen(3000,()=>console.log("🔥 NightMind running with stats"));
+server.listen(3000,()=>console.log("🔥 NightMind running with leaderboard"));

@@ -9,7 +9,7 @@
 
 <style>
 body { background:#0f172a; color:white; text-align:center; }
-.card { background:#1e293b; padding:20px; margin:10px auto; width:300px; border-radius:15px; }
+.card { background:#1e293b; padding:20px; margin:10px auto; width:320px; border-radius:15px; }
 button { padding:10px; margin:5px; background:#ef4444; border:none; color:white; }
 </style>
 </head>
@@ -21,6 +21,7 @@ button { padding:10px; margin:5px; background:#ef4444; border:none; color:white;
 <div class="card">
 <input id="name" placeholder="Name"><br><br>
 <button onclick="playGuest()">🎮 Guest</button>
+<button onclick="quickPlay()">⚡ Quick Play (Account)</button>
 </div>
 
 <div class="card">
@@ -29,6 +30,13 @@ button { padding:10px; margin:5px; background:#ef4444; border:none; color:white;
 <button onclick="register()">Register</button>
 <button onclick="login()">Login</button>
 <p id="userInfo"></p>
+</div>
+
+<!-- 🏆 Leaderboard -->
+<div class="card">
+<h2>🏆 Leaderboard</h2>
+<ul id="leaderboard"></ul>
+<button onclick="loadLeaderboard()">🔄 Refresh</button>
 </div>
 
 <h2 id="phase">Lobby</h2>
@@ -56,16 +64,31 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 
+// Socket
 const socket = new WebSocket(
  (location.protocol==="https:"?"wss://":"ws://")+location.host
 );
 
 // Guest
 function playGuest(){
-    socket.send(JSON.stringify({
-        type:"quick_play",
-        name:name.value
-    }));
+socket.send(JSON.stringify({
+type:"quick_play",
+name:name.value
+}));
+}
+
+// Account play
+function quickPlay(){
+if(!auth.currentUser){
+alert("login first");
+return;
+}
+
+socket.send(JSON.stringify({
+type:"quick_play",
+name:auth.currentUser.email,
+email:auth.currentUser.email
+}));
 }
 
 // Auth
@@ -82,11 +105,12 @@ auth.signInWithEmailAndPassword(email.value,password.value)
 
 auth.onAuthStateChanged(user=>{
 if(user){
-userInfo.innerText="Logged in as "+user.email;
+userInfo.innerText="Logged as "+user.email;
+loadLeaderboard();
 }
 });
 
-// Create user in DB
+// Create user
 function createUserDoc(user){
 db.collection("users").doc(user.uid).set({
 email:user.email,
@@ -96,18 +120,26 @@ games:0
 });
 }
 
-// Quick play (account)
-function quickPlay(){
-if(!auth.currentUser){
-alert("login first");
-return;
-}
+// 🏆 LOAD LEADERBOARD
+async function loadLeaderboard(){
 
-socket.send(JSON.stringify({
-type:"quick_play",
-name:auth.currentUser.email,
-email:auth.currentUser.email
-}));
+leaderboard.innerHTML="Loading...";
+
+const snapshot = await db.collection("users")
+.orderBy("wins","desc")
+.limit(10)
+.get();
+
+leaderboard.innerHTML="";
+
+snapshot.forEach(doc=>{
+const u = doc.data();
+
+const li=document.createElement("li");
+li.innerText = `${u.email} - 🏆 ${u.wins} wins`;
+leaderboard.appendChild(li);
+});
+
 }
 
 // Actions
@@ -132,16 +164,14 @@ message:chatInput.value
 }));
 }
 
-// 🔥 UPDATE STATS
+// Update stats
 socket.onmessage = async (e)=>{
 const d = JSON.parse(e.data);
 
 if(d.type==="update_stats" && auth.currentUser){
 
 const ref = db.collection("users").doc(auth.currentUser.uid);
-
 const doc = await ref.get();
-
 const data = doc.data();
 
 await ref.update({
@@ -150,7 +180,7 @@ wins: data.wins + (d.win ? 1 : 0),
 losses: data.losses + (d.win ? 0 : 1)
 });
 
-alert("Stats updated!");
+loadLeaderboard();
 }
 
 if(d.type==="game_over"){
