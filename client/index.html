@@ -1,51 +1,19 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>NightMind Lobby</title>
+<title>NightMind</title>
 
 <style>
-body{
-background:#020617;
-color:white;
-font-family:Arial;
-text-align:center;
-}
-
-.card{
-background:#1e293b;
-padding:20px;
-margin:15px auto;
-width:350px;
-border-radius:15px;
-}
-
-button{
-padding:10px;
-margin:5px;
-background:#ef4444;
-border:none;
-color:white;
-cursor:pointer;
-}
-
-.ready{
-color:#22c55e;
-}
-
-.notready{
-color:#ef4444;
-}
-
-.host{
-color:gold;
-}
-
+body{background:#020617;color:white;text-align:center;font-family:Arial;}
+.card{background:#1e293b;padding:15px;margin:10px auto;width:340px;border-radius:10px;}
+button{padding:10px;margin:5px;background:#ef4444;color:white;border:none;}
+.ready{color:#22c55e;}
 </style>
 </head>
 
 <body>
 
-<h1>🎮 NightMind Lobby</h1>
+<h1>🐺 NightMind</h1>
 
 <div class="card">
 <input id="name" placeholder="Name"><br>
@@ -53,17 +21,16 @@ color:gold;
 </div>
 
 <div class="card">
-<input id="roomCode" placeholder="Room code">
+<input id="roomCode" placeholder="Code">
 <button onclick="joinRoom()">Join</button>
 </div>
 
 <div class="card">
 <h2 id="room"></h2>
 
-<button onclick="toggleReady()">🟢 Ready</button>
-<button onclick="startGame()">▶️ Start Game</button>
+<button onclick="toggleReady()">Ready</button>
+<button onclick="startGame()">Start</button>
 
-<h3>Players</h3>
 <ul id="players"></ul>
 </div>
 
@@ -78,43 +45,41 @@ let playerName="";
 socket.onmessage = (e)=>{
 const d = JSON.parse(e.data);
 
-// room
-if(d.type==="room_created" || d.type==="room_joined"){
+if(d.type==="room_created"||d.type==="room_joined"){
 room.innerText="Room: "+d.code;
 }
 
-// lobby update
 if(d.type==="lobby_update"){
-
 players.innerHTML="";
-
 d.players.forEach(p=>{
 const li=document.createElement("li");
-
-li.innerHTML = `
-${p.name}
-${p.host ? " 👑" : ""}
-<span class="${p.ready ? 'ready' : 'notready'}">
-${p.ready ? "READY" : "NOT READY"}
-</span>
-`;
-
+li.innerText = `${p.name} ${p.ready?"✅":"❌"} ${p.host?"👑":""}`;
 players.appendChild(li);
 });
 }
 
-// game start
 if(d.type==="game_started"){
 alert("Game Started!");
 }
 
-if(d.type==="error"){
-alert(d.message);
+if(d.type==="your_role"){
+alert("Your role: "+d.role);
+}
+
+if(d.type==="night_start"){
+console.log("Night...");
+}
+
+if(d.type==="day_start"){
+alert("Dead: "+d.dead);
+}
+
+if(d.type==="game_over"){
+alert("Winner: "+d.message);
 }
 
 };
 
-// actions
 function createRoom(){
 playerName=name.value;
 socket.send(JSON.stringify({
@@ -133,15 +98,11 @@ code:roomCode.value
 }
 
 function toggleReady(){
-socket.send(JSON.stringify({
-type:"toggle_ready"
-}));
+socket.send(JSON.stringify({type:"toggle_ready"}));
 }
 
 function startGame(){
-socket.send(JSON.stringify({
-type:"start_game"
-}));
+socket.send(JSON.stringify({type:"start_game"}));
 }
 
 </script>
