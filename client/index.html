@@ -20,20 +20,24 @@
 <button onclick="joinRoom()">Join Room</button>
 
 <h2 id="room"></h2>
-
 <h3 id="phase">Phase: Lobby</h3>
 
-<h3>Players</h3>
 <ul id="players"></ul>
 
 <button onclick="startGame()">Start Game</button>
 
 <h3>Actions</h3>
-<input id="target" placeholder="Target player">
-<button onclick="kill()">Kill (Werewolf)</button>
-<button onclick="vote()">Vote</button>
+
+<input id="target" placeholder="Target name">
+
+<button onclick="kill()">Kill 🐺</button>
+<button onclick="save()">Save 💉</button>
+<button onclick="see()">See 🔮</button>
+<button onclick="vote()">Vote 🗳️</button>
+<button onclick="endNight()">End Night 🌙➡️☀️</button>
 
 <h3>Chat</h3>
+
 <input id="chatInput">
 <button onclick="sendChat()">Send</button>
 
@@ -42,93 +46,93 @@
 <script>
 
 const socket = new WebSocket(
-  (location.protocol === "https:" ? "wss://" : "ws://") + location.host
+  (location.protocol==="https:"?"wss://":"ws://")+location.host
 );
 
-let playerName="";
+let name="";
 
-socket.onmessage = (event) => {
+socket.onmessage=(e)=>{
 
-const data = JSON.parse(event.data);
+const d=JSON.parse(e.data);
 
-// دورك
-if(data.type === "your_role"){
-    alert("Your role is: " + data.role);
+if(d.type==="your_role") alert("Role: "+d.role);
+
+if(d.type==="night_start")
+document.getElementById("phase").innerText="Night 🌙";
+
+if(d.type==="day_start"){
+document.getElementById("phase").innerText="Day ☀️";
+alert("Dead: "+d.dead);
 }
 
-// الليل
-if(data.type === "night_start"){
-    document.getElementById("phase").innerText="Phase: Night 🌙";
+if(d.type==="seer_result")
+alert("Role is: "+d.role);
+
+if(d.type==="game_over")
+alert(d.message);
+
+if(d.type==="player_list"){
+const list=document.getElementById("players");
+list.innerHTML="";
+d.players.forEach(p=>{
+const li=document.createElement("li");
+li.innerText=p;
+list.appendChild(li);
+});
 }
 
-// النهار
-if(data.type === "day_start"){
-    document.getElementById("phase").innerText="Phase: Day ☀️";
-    alert("Player killed: " + data.dead);
+if(d.type==="chat"){
+const li=document.createElement("li");
+li.innerText=d.name+": "+d.message;
+document.getElementById("chat").appendChild(li);
 }
 
-// قتل بالتصويت
-if(data.type === "player_killed"){
-    alert("Executed: " + data.name);
-}
-
-// غرفة
-if(data.type==="room_created" || data.type==="room_joined"){
-    document.getElementById("room").innerText="Room: "+data.code;
-}
-
-// لاعبين
-if(data.type==="player_list"){
-    const list=document.getElementById("players");
-    list.innerHTML="";
-    data.players.forEach(p=>{
-        const li=document.createElement("li");
-        li.innerText=p;
-        list.appendChild(li);
-    });
-}
-
-// شات
-if(data.type==="chat"){
-    const chat=document.getElementById("chat");
-    const li=document.createElement("li");
-    li.innerText=data.name+": "+data.message;
-    chat.appendChild(li);
+if(d.type==="room_created"||d.type==="room_joined"){
+document.getElementById("room").innerText="Room: "+d.code;
 }
 
 };
 
 function createRoom(){
-playerName=document.getElementById("name").value;
-socket.send(JSON.stringify({ type:"create_room", name:playerName }));
+name=document.getElementById("name").value;
+socket.send(JSON.stringify({type:"create_room",name}));
 }
 
 function joinRoom(){
-playerName=document.getElementById("name").value;
+name=document.getElementById("name").value;
 const code=document.getElementById("roomCode").value;
-socket.send(JSON.stringify({ type:"join_room", name:playerName, code:code }));
+socket.send(JSON.stringify({type:"join_room",name,code}));
 }
 
 function startGame(){
-socket.send(JSON.stringify({ type:"start_game" }));
+socket.send(JSON.stringify({type:"start_game"}));
 }
 
 function kill(){
-const target=document.getElementById("target").value;
-socket.send(JSON.stringify({ type:"kill", target:target }));
+socket.send(JSON.stringify({type:"kill",target:target.value}));
+}
+
+function save(){
+socket.send(JSON.stringify({type:"save",target:target.value}));
+}
+
+function see(){
+socket.send(JSON.stringify({type:"see",target:target.value}));
 }
 
 function vote(){
-const target=document.getElementById("target").value;
-socket.send(JSON.stringify({ type:"vote", target:target }));
+socket.send(JSON.stringify({type:"vote",target:target.value}));
+}
+
+function endNight(){
+socket.send(JSON.stringify({type:"end_night"}));
 }
 
 function sendChat(){
-const message=document.getElementById("chatInput").value;
 socket.send(JSON.stringify({
 type:"chat",
-name:playerName,
-message:message
+name:name,
+message:chatInput.value
 }));
 }
 
