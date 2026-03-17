@@ -1,0 +1,39 @@
+body {
+    background: #121212;
+    color: white;
+    font-family: Arial;
+    text-align: center;
+}
+
+h1 {
+    color: #ff4757;
+}
+
+input, button {
+    padding: 10px;
+    margin: 5px;
+    border-radius: 8px;
+    border: none;
+}
+
+button {
+    background: #ff4757;
+    color: white;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #ff6b81;
+}
+
+#players li {
+    background: #1e1e1e;
+    margin: 5px;
+    padding: 8px;
+    border-radius: 6px;
+}
+
+#chat li {
+    text-align: left;
+    margin: 5px;
+}
