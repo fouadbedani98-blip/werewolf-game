@@ -10,314 +10,250 @@ app.use(express.static("client"));
 
 let rooms = {};
 
-// إنشاء كود غرفة
+const NIGHT_TIME = 15000; // 15s
+const DAY_TIME = 20000;   // 20s
+
 function generateRoomCode() {
     const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    return Array.from({ length: 4 }, () =>
-        letters[Math.floor(Math.random() * letters.length)]
-    ).join("");
+    return Array.from({length:4},()=>letters[Math.floor(Math.random()*26)]).join("");
 }
 
-// توزيع الأدوار
-function assignRoles(players) {
-    const roles = ["werewolf", "werewolf", "seer", "doctor"];
-    while (roles.length < players.length) roles.push("villager");
+function assignRoles(players){
+    const roles = ["werewolf","werewolf","seer","doctor"];
+    while(roles.length < players.length) roles.push("villager");
 
-    for (let i = roles.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [roles[i], roles[j]] = [roles[j], roles[i]];
+    for(let i=roles.length-1;i>0;i--){
+        const j=Math.floor(Math.random()*(i+1));
+        [roles[i],roles[j]]=[roles[j],roles[i]];
     }
-
     return roles;
 }
 
-// إرسال قائمة اللاعبين
-function broadcastPlayers(room) {
-    const alive = room.players.filter(p => p.alive).map(p => p.name);
-
-    room.players.forEach(p => {
-        p.socket.send(JSON.stringify({
-            type: "player_list",
-            players: alive
-        }));
+function broadcast(room, data){
+    room.players.forEach(p=>{
+        p.socket.send(JSON.stringify(data));
     });
 }
 
-// التحقق من الفوز
-function checkWin(room) {
-    const alive = room.players.filter(p => p.alive);
+function broadcastPlayers(room){
+    const alive = room.players.filter(p=>p.alive).map(p=>p.name);
+    broadcast(room,{type:"player_list",players:alive});
+}
 
-    const wolves = alive.filter(p => p.role === "werewolf").length;
+function checkWin(room){
+    const alive = room.players.filter(p=>p.alive);
+    const wolves = alive.filter(p=>p.role==="werewolf").length;
     const villagers = alive.length - wolves;
 
-    if (wolves === 0) return "Villagers Win 🏆";
-    if (wolves >= villagers) return "Werewolves Win 🐺";
-
+    if(wolves===0) return "Villagers Win 🏆";
+    if(wolves>=villagers) return "Werewolves Win 🐺";
     return null;
 }
 
-wss.on("connection", (ws) => {
+// ================= NIGHT =================
+function startNight(room){
 
-    ws.on("message", (msg) => {
+    room.phase="night";
+    room.nightKill=null;
+    room.doctorSave=null;
 
-        const data = JSON.parse(msg);
+    broadcast(room,{type:"night_start",time:NIGHT_TIME/1000});
 
-        const room = rooms[ws.room];
-        const sender = room?.players.find(p => p.socket === ws);
+    room.timer = setTimeout(()=>{
+        endNight(room);
+    },NIGHT_TIME);
+}
 
-        // 🚫 منع الميتين
-        if (sender && !sender.alive) return;
+// ================= END NIGHT =================
+function endNight(room){
 
-        // =========================
-        // CREATE ROOM
-        // =========================
-        if (data.type === "create_room") {
+    let dead=null;
 
-            const code = generateRoomCode();
-
-            rooms[code] = {
-                players: [],
-                phase: "lobby",
-                nightKill: null,
-                doctorSave: null,
-                votes: {}
-            };
-
-            const player = {
-                name: data.name,
-                socket: ws,
-                role: null,
-                alive: true
-            };
-
-            rooms[code].players.push(player);
-            ws.room = code;
-
-            ws.send(JSON.stringify({ type: "room_created", code }));
-
-            broadcastPlayers(rooms[code]);
+    if(room.nightKill !== room.doctorSave){
+        const victim = room.players.find(p=>p.name===room.nightKill);
+        if(victim){
+            victim.alive=false;
+            dead=victim.name;
         }
+    }
 
-        // =========================
-        // JOIN ROOM
-        // =========================
-        if (data.type === "join_room") {
+    broadcast(room,{type:"day_start",dead:dead||"No one",time:DAY_TIME/1000});
 
-            const room = rooms[data.code];
-            if (!room) return;
+    broadcastPlayers(room);
 
-            const player = {
-                name: data.name,
-                socket: ws,
-                role: null,
-                alive: true
-            };
+    const win = checkWin(room);
+    if(win){
+        broadcast(room,{type:"game_over",message:win});
+        return;
+    }
 
-            room.players.push(player);
-            ws.room = data.code;
+    room.phase="day";
+    room.votes={};
 
-            ws.send(JSON.stringify({ type: "room_joined", code: data.code }));
+    room.timer = setTimeout(()=>{
+        endDay(room);
+    },DAY_TIME);
+}
 
-            broadcastPlayers(room);
+// ================= END DAY =================
+function endDay(room){
+
+    let max=0, target=null;
+
+    for(let name in room.votes){
+        if(room.votes[name]>max){
+            max=room.votes[name];
+            target=name;
         }
+    }
 
-        // =========================
-        // START GAME
-        // =========================
-        if (data.type === "start_game") {
+    if(target){
+        const player = room.players.find(p=>p.name===target);
+        if(player) player.alive=false;
+    }
 
-            const room = rooms[ws.room];
-            if (!room) return;
+    broadcast(room,{type:"player_killed",name:target||"No one"});
 
-            const roles = assignRoles(room.players);
+    broadcastPlayers(room);
 
-            room.players.forEach((p, i) => {
-                p.role = roles[i];
-                p.socket.send(JSON.stringify({
-                    type: "your_role",
-                    role: p.role
-                }));
-            });
+    const win = checkWin(room);
+    if(win){
+        broadcast(room,{type:"game_over",message:win});
+        return;
+    }
 
-            room.phase = "night";
+    startNight(room);
+}
 
-            room.players.forEach(p => {
-                p.socket.send(JSON.stringify({ type: "night_start" }));
-            });
-        }
+wss.on("connection",(ws)=>{
 
-        // =========================
-        // WEREWOLF KILL
-        // =========================
-        if (data.type === "kill") {
+ws.on("message",(msg)=>{
 
-            if (!room || room.phase !== "night") return;
-            if (sender.role !== "werewolf") return;
+const data = JSON.parse(msg);
+const room = rooms[ws.room];
+const sender = room?.players.find(p=>p.socket===ws);
 
-            room.nightKill = data.target;
-        }
+// منع الميتين
+if(sender && !sender.alive) return;
 
-        // =========================
-        // DOCTOR SAVE
-        // =========================
-        if (data.type === "save") {
+// CREATE
+if(data.type==="create_room"){
 
-            if (!room || room.phase !== "night") return;
-            if (sender.role !== "doctor") return;
+    const code=generateRoomCode();
 
-            room.doctorSave = data.target;
-        }
+    rooms[code]={
+        players:[],
+        readyCount:0,
+        phase:"lobby"
+    };
 
-        // =========================
-        // SEER CHECK
-        // =========================
-        if (data.type === "see") {
+    const player={name:data.name,socket:ws,alive:true,role:null,ready:false};
 
-            if (!room || sender.role !== "seer") return;
+    rooms[code].players.push(player);
+    ws.room=code;
 
-            const target = room.players.find(p => p.name === data.target);
+    ws.send(JSON.stringify({type:"room_created",code}));
+    broadcastPlayers(rooms[code]);
+}
 
-            sender.socket.send(JSON.stringify({
-                type: "seer_result",
-                role: target ? target.role : "unknown"
-            }));
-        }
+// JOIN
+if(data.type==="join_room"){
 
-        // =========================
-        // END NIGHT → DAY
-        // =========================
-        if (data.type === "end_night") {
+    const room=rooms[data.code];
+    if(!room) return;
 
-            if (!room || room.phase !== "night") return;
+    const player={name:data.name,socket:ws,alive:true,role:null,ready:false};
 
-            let dead = null;
+    room.players.push(player);
+    ws.room=data.code;
 
-            if (room.nightKill !== room.doctorSave) {
-                const victim = room.players.find(p => p.name === room.nightKill);
-                if (victim) {
-                    victim.alive = false;
-                    dead = victim.name;
-                }
-            }
+    ws.send(JSON.stringify({type:"room_joined",code:data.code}));
+    broadcastPlayers(room);
+}
 
-            room.phase = "day";
+// READY SYSTEM
+if(data.type==="ready"){
 
-            room.players.forEach(p => {
-                p.socket.send(JSON.stringify({
-                    type: "day_start",
-                    dead: dead || "No one"
-                }));
-            });
+    if(!room) return;
 
-            broadcastPlayers(room);
+    sender.ready=true;
 
-            const win = checkWin(room);
-            if (win) {
-                room.players.forEach(p => {
-                    p.socket.send(JSON.stringify({
-                        type: "game_over",
-                        message: win
-                    }));
-                });
-            }
+    const readyCount = room.players.filter(p=>p.ready).length;
 
-            room.nightKill = null;
-            room.doctorSave = null;
-        }
-
-        // =========================
-        // VOTE
-        // =========================
-        if (data.type === "vote") {
-
-            if (!room || room.phase !== "day") return;
-
-            room.votes[data.target] = (room.votes[data.target] || 0) + 1;
-
-            const aliveCount = room.players.filter(p => p.alive).length;
-            const totalVotes = Object.values(room.votes).reduce((a, b) => a + b, 0);
-
-            if (totalVotes >= aliveCount) {
-
-                let max = 0;
-                let target = null;
-
-                for (let name in room.votes) {
-                    if (room.votes[name] > max) {
-                        max = room.votes[name];
-                        target = name;
-                    }
-                }
-
-                const player = room.players.find(p => p.name === target);
-                if (player) player.alive = false;
-
-                room.players.forEach(p => {
-                    p.socket.send(JSON.stringify({
-                        type: "player_killed",
-                        name: target
-                    }));
-                });
-
-                room.votes = {};
-                room.phase = "night";
-
-                broadcastPlayers(room);
-
-                const win = checkWin(room);
-                if (win) {
-                    room.players.forEach(p => {
-                        p.socket.send(JSON.stringify({
-                            type: "game_over",
-                            message: win
-                        }));
-                    });
-                } else {
-                    room.players.forEach(p => {
-                        p.socket.send(JSON.stringify({ type: "night_start" }));
-                    });
-                }
-            }
-        }
-
-        // =========================
-        // CHAT
-        // =========================
-        if (data.type === "chat") {
-
-            if (!room) return;
-
-            if (room.phase === "night") {
-
-                if (sender.role === "werewolf") {
-                    room.players.forEach(p => {
-                        if (p.role === "werewolf") {
-                            p.socket.send(JSON.stringify({
-                                type: "chat",
-                                name: data.name,
-                                message: data.message
-                            }));
-                        }
-                    });
-                }
-
-            } else {
-
-                room.players.forEach(p => {
-                    p.socket.send(JSON.stringify({
-                        type: "chat",
-                        name: data.name,
-                        message: data.message
-                    }));
-                });
-
-            }
-        }
-
+    broadcast(room,{
+        type:"ready_update",
+        ready:readyCount,
+        total:room.players.length
     });
 
+    if(readyCount === room.players.length){
+
+        const roles = assignRoles(room.players);
+
+        room.players.forEach((p,i)=>{
+            p.role=roles[i];
+            p.socket.send(JSON.stringify({type:"your_role",role:p.role}));
+        });
+
+        startNight(room);
+    }
+}
+
+// ACTIONS
+if(data.type==="kill"){
+    if(room.phase==="night" && sender.role==="werewolf"){
+        room.nightKill=data.target;
+    }
+}
+
+if(data.type==="save"){
+    if(room.phase==="night" && sender.role==="doctor"){
+        room.doctorSave=data.target;
+    }
+}
+
+if(data.type==="see"){
+    if(sender.role==="seer"){
+        const target=room.players.find(p=>p.name===data.target);
+        sender.socket.send(JSON.stringify({
+            type:"seer_result",
+            role:target?target.role:"unknown"
+        }));
+    }
+}
+
+// VOTE
+if(data.type==="vote"){
+    if(room.phase!=="day") return;
+    room.votes[data.target]=(room.votes[data.target]||0)+1;
+}
+
+// CHAT
+if(data.type==="chat"){
+
+    if(room.phase==="night"){
+        if(sender.role==="werewolf"){
+            room.players.forEach(p=>{
+                if(p.role==="werewolf"){
+                    p.socket.send(JSON.stringify({
+                        type:"chat",
+                        name:data.name,
+                        message:data.message
+                    }));
+                }
+            });
+        }
+    } else {
+        broadcast(room,{
+            type:"chat",
+            name:data.name,
+            message:data.message
+        });
+    }
+}
+
 });
 
-server.listen(3000, () => {
-    console.log("Server running on port 3000");
 });
+
+server.listen(3000,()=>console.log("PRO server running"));
