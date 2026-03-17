@@ -1,104 +1,128 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>Werewolf PRO MAX</title>
+<title>NightMind</title>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 
 <style>
-body {
-    background: #0f172a;
-    color: white;
-    font-family: Arial;
-    text-align: center;
-}
-
-.card {
-    background: #1e293b;
-    padding: 20px;
-    margin: 10px auto;
-    border-radius: 15px;
-    width: 300px;
-}
-
-button {
-    padding: 10px;
-    margin: 5px;
-    border-radius: 8px;
-    border: none;
-    background: #ef4444;
-    color: white;
-}
-
-.fade {
-    animation: fade 0.5s;
-}
-
-@keyframes fade {
-    from {opacity:0;}
-    to {opacity:1;}
-}
+body { background:#0f172a; color:white; text-align:center; }
+.card { background:#1e293b; padding:20px; margin:10px auto; width:300px; border-radius:15px; }
+button { padding:10px; margin:5px; background:#ef4444; border:none; color:white; }
 </style>
-
 </head>
 
 <body>
 
-<h1>🐺 Werewolf PRO MAX</h1>
+<h1>🐺 NightMind</h1>
 
 <div class="card">
-<input id="name" placeholder="Your name"><br><br>
-<button onclick="quickPlay()">🌍 Quick Play</button>
+<input id="name" placeholder="Name"><br><br>
+<button onclick="playGuest()">🎮 Guest</button>
+</div>
+
+<div class="card">
+<input id="email" placeholder="Email"><br><br>
+<input id="password" type="password" placeholder="Password"><br><br>
+<button onclick="register()">Register</button>
+<button onclick="login()">Login</button>
+<p id="userInfo"></p>
 </div>
 
 <h2 id="phase">Lobby</h2>
 <h3 id="timer"></h3>
 
-<div class="card">
-<input id="target" placeholder="Target">
+<input id="target" placeholder="Target"><br>
 <button onclick="kill()">🐺</button>
 <button onclick="save()">💉</button>
 <button onclick="see()">🔮</button>
 <button onclick="vote()">🗳️</button>
-</div>
 
 <ul id="chat"></ul>
-
 <input id="chatInput">
 <button onclick="sendChat()">Send</button>
 
-<!-- 🔊 Sounds -->
 <audio id="nightSound" src="https://www.myinstants.com/media/sounds/wolf-howl.mp3"></audio>
 <audio id="daySound" src="https://www.myinstants.com/media/sounds/rooster.mp3"></audio>
-<audio id="killSound" src="https://www.myinstants.com/media/sounds/slash.mp3"></audio>
 
 <script>
 
+// 🔥 Firebase
+const firebaseConfig = {
+  apiKey: "AIzaSyB9xf5ZR5MbR0Rs7T0rc2rZwtfOUn2ZqnE",
+  authDomain: "nightmind-82dba.firebaseapp.com",
+  projectId: "nightmind-82dba"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+
+// 🌍 Socket
 const socket = new WebSocket(
  (location.protocol==="https:"?"wss://":"ws://")+location.host
 );
 
+// 👤 Guest
+function playGuest(){
+    const name = document.getElementById("name").value;
+    socket.send(JSON.stringify({type:"quick_play",name}));
+}
+
+// 🔐 Auth
+function register(){
+    auth.createUserWithEmailAndPassword(email.value,password.value)
+    .then(()=>alert("Account created"))
+    .catch(e=>alert(e.message));
+}
+
+function login(){
+    auth.signInWithEmailAndPassword(email.value,password.value)
+    .then(()=>alert("Logged in"))
+    .catch(e=>alert(e.message));
+}
+
+auth.onAuthStateChanged(user=>{
+    if(user){
+        userInfo.innerText="Logged in as "+user.email;
+    }
+});
+
+// 🎮 Actions
+function send(type){
+    socket.send(JSON.stringify({
+        type,
+        target:target.value
+    }));
+}
+
+function kill(){send("kill");}
+function save(){send("save");}
+function see(){send("see");}
+function vote(){send("vote");}
+
+// 💬 Chat
+function sendChat(){
+    socket.send(JSON.stringify({
+        type:"chat",
+        name:"You",
+        message:chatInput.value
+    }));
+}
+
+// 📩 Messages
 socket.onmessage=(e)=>{
 const d=JSON.parse(e.data);
 
-if(d.type==="searching") alert("Searching players...");
-
-if(d.type==="your_role") alert("Role: "+d.role);
-
 if(d.type==="night_start"){
-setPhase("Night 🌙");
-play("nightSound");
-startTimer(d.time);
+phase.innerText="Night 🌙";
+nightSound.play();
 }
 
 if(d.type==="day_start"){
-setPhase("Day ☀️");
-play("daySound");
+phase.innerText="Day ☀️";
+daySound.play();
 alert("Dead: "+d.dead);
-startTimer(d.time);
-}
-
-if(d.type==="player_killed"){
-play("killSound");
-alert("Executed: "+d.name);
 }
 
 if(d.type==="game_over"){
@@ -106,58 +130,12 @@ alert(d.message);
 }
 
 if(d.type==="chat"){
-addChat(d.name,d.message);
-}
-};
-
-function setPhase(t){
-document.getElementById("phase").innerText=t;
-}
-
-function startTimer(seconds){
-let t=seconds;
-const el=document.getElementById("timer");
-
-const interval=setInterval(()=>{
-el.innerText="⏳ "+t;
-t--;
-if(t<0) clearInterval(interval);
-},1000);
-}
-
-function play(id){
-document.getElementById(id).play();
-}
-
-function quickPlay(){
-socket.send(JSON.stringify({type:"quick_play"}));
-}
-
-function kill(){ send("kill"); }
-function save(){ send("save"); }
-function see(){ send("see"); }
-function vote(){ send("vote"); }
-
-function send(type){
-socket.send(JSON.stringify({
-type,
-target:document.getElementById("target").value
-}));
-}
-
-function sendChat(){
-socket.send(JSON.stringify({
-type:"chat",
-name:"You",
-message:chatInput.value
-}));
-}
-
-function addChat(n,m){
 const li=document.createElement("li");
-li.innerText=n+": "+m;
-document.getElementById("chat").appendChild(li);
+li.innerText=d.name+": "+d.message;
+chat.appendChild(li);
 }
+
+};
 
 </script>
 

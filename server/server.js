@@ -14,6 +14,7 @@ let waitingPlayers = [];
 const NIGHT_TIME = 10000;
 const DAY_TIME = 15000;
 
+// 🎭 Roles
 function assignRoles(players){
     const roles = ["werewolf","werewolf","seer","doctor"];
     while(roles.length < players.length) roles.push("villager");
@@ -25,6 +26,7 @@ function assignRoles(players){
     return roles;
 }
 
+// 📢 Broadcast
 function broadcast(room,data){
     room.players.forEach(p=>{
         if(p.socket){
@@ -33,6 +35,7 @@ function broadcast(room,data){
     });
 }
 
+// 🧠 Win check
 function checkWin(room){
     const alive = room.players.filter(p=>p.alive);
     const wolves = alive.filter(p=>p.role==="werewolf").length;
@@ -43,7 +46,7 @@ function checkWin(room){
     return null;
 }
 
-// 🤖 BOT ACTION
+// 🤖 Bots
 function botPlay(room){
 
     room.players.forEach(p=>{
@@ -51,28 +54,28 @@ function botPlay(room){
 
             if(room.phase==="night"){
                 if(p.role==="werewolf"){
-                    const targets = room.players.filter(x=>x.alive && x.role!=="werewolf");
-                    if(targets.length){
-                        room.nightKill = targets[Math.floor(Math.random()*targets.length)].name;
+                    const t = room.players.filter(x=>x.alive && x.role!=="werewolf");
+                    if(t.length){
+                        room.nightKill = t[Math.floor(Math.random()*t.length)].name;
                     }
                 }
                 if(p.role==="doctor"){
-                    const targets = room.players.filter(x=>x.alive);
-                    room.doctorSave = targets[Math.floor(Math.random()*targets.length)].name;
+                    const t = room.players.filter(x=>x.alive);
+                    room.doctorSave = t[Math.floor(Math.random()*t.length)].name;
                 }
             }
 
             if(room.phase==="day"){
-                const targets = room.players.filter(x=>x.alive);
-                const vote = targets[Math.floor(Math.random()*targets.length)].name;
-                room.votes[vote] = (room.votes[vote]||0)+1;
+                const t = room.players.filter(x=>x.alive);
+                const v = t[Math.floor(Math.random()*t.length)].name;
+                room.votes[v] = (room.votes[v]||0)+1;
             }
         }
     });
 }
 
+// 🌙 Night
 function startNight(room){
-
     room.phase="night";
     room.nightKill=null;
     room.doctorSave=null;
@@ -85,15 +88,16 @@ function startNight(room){
     },NIGHT_TIME);
 }
 
+// ☀️ End Night
 function endNight(room){
 
     let dead=null;
 
     if(room.nightKill !== room.doctorSave){
-        const victim = room.players.find(p=>p.name===room.nightKill);
-        if(victim){
-            victim.alive=false;
-            dead=victim.name;
+        const v = room.players.find(p=>p.name===room.nightKill);
+        if(v){
+            v.alive=false;
+            dead=v.name;
         }
     }
 
@@ -114,6 +118,7 @@ function endNight(room){
     },DAY_TIME);
 }
 
+// 🗳️ End Day
 function endDay(room){
 
     let max=0,target=null;
@@ -141,28 +146,32 @@ function endDay(room){
     startNight(room);
 }
 
-// 🌍 MATCHMAKING
+// 🌍 Matchmaking
 function tryMatchmaking(){
 
-    if(waitingPlayers.length >= 2){
+    if(waitingPlayers.length >= 1){
 
         const roomId = "MM"+Math.floor(Math.random()*9999);
 
-        const players = waitingPlayers.splice(0,2);
+        const ws = waitingPlayers.shift();
 
         rooms[roomId] = {
             players: [],
             phase:"lobby"
         };
 
-        players.forEach(ws=>{
-            const player = {name:"Player",socket:ws,alive:true};
-            rooms[roomId].players.push(player);
-            ws.room = roomId;
-            ws.send(JSON.stringify({type:"room_joined",code:roomId}));
-        });
+        const player = {
+            name: ws.playerName || "Guest",
+            socket: ws,
+            alive: true
+        };
 
-        // 🤖 add bots
+        rooms[roomId].players.push(player);
+        ws.room = roomId;
+
+        ws.send(JSON.stringify({type:"room_joined",code:roomId}));
+
+        // 🤖 Bots
         while(rooms[roomId].players.length < 6){
             rooms[roomId].players.push({
                 name:"Bot"+Math.floor(Math.random()*100),
@@ -172,6 +181,7 @@ function tryMatchmaking(){
         }
 
         const roles = assignRoles(rooms[roomId].players);
+
         rooms[roomId].players.forEach((p,i)=>{
             p.role=roles[i];
             if(p.socket){
@@ -191,14 +201,15 @@ const data = JSON.parse(msg);
 const room = rooms[ws.room];
 const sender = room?.players.find(p=>p.socket===ws);
 
-// MATCHMAKING
+// 🎮 Quick Play
 if(data.type==="quick_play"){
+    ws.playerName = data.name || "Guest";
     waitingPlayers.push(ws);
     ws.send(JSON.stringify({type:"searching"}));
     tryMatchmaking();
 }
 
-// ACTIONS
+// 🎭 Actions
 if(data.type==="kill" && sender?.role==="werewolf"){
     room.nightKill=data.target;
 }
@@ -216,6 +227,7 @@ if(data.type==="vote"){
     room.votes[data.target]=(room.votes[data.target]||0)+1;
 }
 
+// 💬 Chat
 if(data.type==="chat"){
     broadcast(room,{type:"chat",name:data.name,message:data.message});
 }
@@ -224,4 +236,4 @@ if(data.type==="chat"){
 
 });
 
-server.listen(3000,()=>console.log("🔥 PRO MAX server running"));
+server.listen(3000,()=>console.log("🔥 NightMind running"));
