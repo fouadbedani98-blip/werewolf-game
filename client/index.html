@@ -9,42 +9,53 @@
 
 <style>
 
-/* 🌌 BACKGROUND */
 body{
 margin:0;
 font-family:Arial;
 background: radial-gradient(circle at top, #1e293b, #020617);
 color:white;
 text-align:center;
+overflow:hidden;
 }
 
-/* 🧠 TITLE */
-h1{
-font-size:40px;
-margin:20px;
-color:#f43f5e;
-text-shadow:0 0 20px #f43f5e;
+/* 🌙 Night overlay */
+#nightOverlay{
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+background:rgba(0,0,0,0.7);
+opacity:0;
+pointer-events:none;
+transition:0.5s;
 }
 
-/* 📦 CARD */
+/* 💀 Death flash */
+#flash{
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+background:red;
+opacity:0;
+pointer-events:none;
+}
+
 .card{
 background:rgba(30,41,59,0.8);
-backdrop-filter:blur(10px);
 padding:20px;
 margin:15px auto;
 width:320px;
 border-radius:15px;
-box-shadow:0 0 20px rgba(0,0,0,0.5);
-animation:fadeIn 0.8s ease;
 }
 
-/* ✨ BUTTON */
 button{
 padding:10px;
 margin:5px;
-border:none;
-border-radius:10px;
 background:#ef4444;
+border:none;
 color:white;
 cursor:pointer;
 transition:0.2s;
@@ -52,45 +63,19 @@ transition:0.2s;
 
 button:hover{
 transform:scale(1.1);
-background:#f87171;
-box-shadow:0 0 10px #f87171;
 }
 
-/* INPUT */
-input{
-padding:10px;
-margin:5px;
-border-radius:8px;
-border:none;
-width:80%;
+/* 🎬 shake */
+@keyframes shake{
+0%{transform:translate(0);}
+25%{transform:translate(5px);}
+50%{transform:translate(-5px);}
+75%{transform:translate(5px);}
+100%{transform:translate(0);}
 }
 
-/* 🧠 XP BAR */
-.xp-bar{
-height:10px;
-background:#334155;
-border-radius:10px;
-overflow:hidden;
-margin-top:5px;
-}
-
-.xp-fill{
-height:100%;
-background:linear-gradient(90deg,#22c55e,#4ade80);
-width:0%;
-}
-
-/* 🏆 LEADERBOARD */
-li{
-list-style:none;
-padding:5px;
-border-bottom:1px solid #334155;
-}
-
-/* 🎬 ANIMATION */
-@keyframes fadeIn{
-from{opacity:0;transform:translateY(10px);}
-to{opacity:1;transform:translateY(0);}
+.shake{
+animation:shake 0.3s;
 }
 
 </style>
@@ -98,46 +83,32 @@ to{opacity:1;transform:translateY(0);}
 
 <body>
 
+<div id="nightOverlay"></div>
+<div id="flash"></div>
+
 <h1>🐺 NightMind</h1>
 
-<!-- 🎮 PLAY -->
 <div class="card">
-<input id="name" placeholder="Enter name">
-<br>
-<button onclick="playGuest()">🎮 Play as Guest</button>
-<button onclick="quickPlay()">⚡ Quick Match</button>
+<input id="name" placeholder="Name"><br>
+<button onclick="playGuest()">Play Guest</button>
+<button onclick="quickPlay()">Quick Match</button>
 </div>
 
-<!-- 🔐 AUTH -->
 <div class="card">
 <input id="email" placeholder="Email"><br>
-<input id="password" type="password" placeholder="Password"><br>
+<input id="password" type="password"><br>
 <button onclick="register()">Register</button>
 <button onclick="login()">Login</button>
 <p id="userInfo"></p>
 </div>
 
-<!-- 👤 PROFILE -->
-<div class="card">
-<h2>👤 Profile</h2>
-<p id="profileEmail"></p>
-<p id="profileLevel"></p>
-<p id="profileRank"></p>
-<p id="profileXP"></p>
-
-<div class="xp-bar">
-<div id="xpFill" class="xp-fill"></div>
-</div>
-</div>
-
-<!-- 🏆 LEADERBOARD -->
-<div class="card">
-<h2>🏆 Leaderboard</h2>
-<ul id="leaderboard"></ul>
-<button onclick="loadLeaderboard()">Refresh</button>
-</div>
-
 <script>
+
+// 🔊 SOUNDS
+const nightSound = new Audio("https://actions.google.com/sounds/v1/ambiences/forest_night.ogg");
+const voteSound = new Audio("https://actions.google.com/sounds/v1/cartoon/pop.ogg");
+const killSound = new Audio("https://actions.google.com/sounds/v1/human_voices/scream.ogg");
+const winSound = new Audio("https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg");
 
 // Firebase
 const firebaseConfig = {
@@ -154,29 +125,65 @@ const socket = new WebSocket(
 (location.protocol==="https:"?"wss://":"ws://")+location.host
 );
 
-// 🎯 XP SYSTEM
-function getLevel(xp){
-return Math.floor(0.1 * Math.sqrt(xp)) + 1;
+// 🎧 EFFECT FUNCTIONS
+function startNightEffect(){
+nightOverlay.style.opacity=1;
+nightSound.play();
 }
 
-function getRank(xp){
-if(xp < 500) return "Bronze";
-if(xp < 1500) return "Silver";
-if(xp < 3000) return "Gold";
-if(xp < 6000) return "Platinum";
-if(xp < 10000) return "Diamond";
-return "Master";
+function endNightEffect(){
+nightOverlay.style.opacity=0;
 }
 
-function getXPPercent(xp){
-const next = (getLevel(xp)+1)**2 * 100;
-return (xp/next)*100;
+function deathEffect(){
+flash.style.opacity=1;
+killSound.play();
+document.body.classList.add("shake");
+
+setTimeout(()=>{
+flash.style.opacity=0;
+document.body.classList.remove("shake");
+},300);
 }
 
-// 🔐 AUTH
+function voteEffect(){
+voteSound.play();
+}
+
+function winEffect(){
+winSound.play();
+}
+
+// 🎮 GAME EVENTS
+socket.onmessage = (e)=>{
+const d = JSON.parse(e.data);
+
+if(d.type==="night_start"){
+startNightEffect();
+}
+
+if(d.type==="day_start"){
+endNightEffect();
+if(d.dead && d.dead!=="No one") deathEffect();
+}
+
+if(d.type==="player_killed"){
+deathEffect();
+}
+
+if(d.type==="game_over"){
+winEffect();
+alert("Winner: " + d.message);
+}
+
+if(d.type==="chat"){
+voteEffect();
+}
+};
+
+// AUTH
 function register(){
-auth.createUserWithEmailAndPassword(email.value,password.value)
-.then(()=>createUserDoc(auth.currentUser));
+auth.createUserWithEmailAndPassword(email.value,password.value);
 }
 
 function login(){
@@ -198,87 +205,6 @@ type:"quick_play",
 name:auth.currentUser.email,
 email:auth.currentUser.email
 }));
-}
-
-// 👤 Create User
-function createUserDoc(user){
-db.collection("users").doc(user.uid).set({
-email:user.email,
-wins:0,
-losses:0,
-games:0,
-xp:0,
-level:1,
-rank:"Bronze",
-joinDate:new Date()
-});
-}
-
-// 👤 PROFILE UPDATE
-auth.onAuthStateChanged(async user=>{
-if(user){
-
-userInfo.innerText="Logged as "+user.email;
-
-const doc = await db.collection("users").doc(user.uid).get();
-const d = doc.data();
-
-profileEmail.innerText="Email: "+d.email;
-profileLevel.innerText="Level: "+d.level;
-profileRank.innerText="Rank: "+d.rank;
-profileXP.innerText="XP: "+d.xp;
-
-// 🎯 XP BAR
-xpFill.style.width = getXPPercent(d.xp) + "%";
-
-loadLeaderboard();
-}
-});
-
-// 📊 UPDATE STATS
-socket.onmessage = async (e)=>{
-const d = JSON.parse(e.data);
-
-if(d.type==="update_stats" && auth.currentUser){
-
-const ref = db.collection("users").doc(auth.currentUser.uid);
-const doc = await ref.get();
-const data = doc.data();
-
-const xpGain = d.win ? 100 : 40;
-const newXP = data.xp + xpGain;
-
-await ref.update({
-games: data.games + 1,
-wins: data.wins + (d.win ? 1 : 0),
-losses: data.losses + (d.win ? 0 : 1),
-xp: newXP,
-level: getLevel(newXP),
-rank: getRank(newXP)
-});
-
-alert("🎉 +" + xpGain + " XP");
-}
-};
-
-// 🏆 LEADERBOARD
-async function loadLeaderboard(){
-
-leaderboard.innerHTML="Loading...";
-
-const snap = await db.collection("users")
-.orderBy("xp","desc")
-.limit(10)
-.get();
-
-leaderboard.innerHTML="";
-
-snap.forEach(doc=>{
-const u = doc.data();
-const li=document.createElement("li");
-li.innerText = `${u.email} - ${u.xp} XP (${u.rank})`;
-leaderboard.appendChild(li);
-});
 }
 
 </script>
