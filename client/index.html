@@ -1,53 +1,21 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>NightMind</title>
-
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<title>NightMind Lobby</title>
 
 <style>
-
 body{
-margin:0;
-font-family:Arial;
-background: radial-gradient(circle at top, #1e293b, #020617);
+background:#020617;
 color:white;
+font-family:Arial;
 text-align:center;
-overflow:hidden;
-}
-
-/* 🌙 Night overlay */
-#nightOverlay{
-position:fixed;
-top:0;
-left:0;
-width:100%;
-height:100%;
-background:rgba(0,0,0,0.7);
-opacity:0;
-pointer-events:none;
-transition:0.5s;
-}
-
-/* 💀 Death flash */
-#flash{
-position:fixed;
-top:0;
-left:0;
-width:100%;
-height:100%;
-background:red;
-opacity:0;
-pointer-events:none;
 }
 
 .card{
-background:rgba(30,41,59,0.8);
+background:#1e293b;
 padding:20px;
 margin:15px auto;
-width:320px;
+width:350px;
 border-radius:15px;
 }
 
@@ -58,24 +26,18 @@ background:#ef4444;
 border:none;
 color:white;
 cursor:pointer;
-transition:0.2s;
 }
 
-button:hover{
-transform:scale(1.1);
+.ready{
+color:#22c55e;
 }
 
-/* 🎬 shake */
-@keyframes shake{
-0%{transform:translate(0);}
-25%{transform:translate(5px);}
-50%{transform:translate(-5px);}
-75%{transform:translate(5px);}
-100%{transform:translate(0);}
+.notready{
+color:#ef4444;
 }
 
-.shake{
-animation:shake 0.3s;
+.host{
+color:gold;
 }
 
 </style>
@@ -83,127 +45,102 @@ animation:shake 0.3s;
 
 <body>
 
-<div id="nightOverlay"></div>
-<div id="flash"></div>
-
-<h1>🐺 NightMind</h1>
+<h1>🎮 NightMind Lobby</h1>
 
 <div class="card">
 <input id="name" placeholder="Name"><br>
-<button onclick="playGuest()">Play Guest</button>
-<button onclick="quickPlay()">Quick Match</button>
+<button onclick="createRoom()">Create Room</button>
 </div>
 
 <div class="card">
-<input id="email" placeholder="Email"><br>
-<input id="password" type="password"><br>
-<button onclick="register()">Register</button>
-<button onclick="login()">Login</button>
-<p id="userInfo"></p>
+<input id="roomCode" placeholder="Room code">
+<button onclick="joinRoom()">Join</button>
+</div>
+
+<div class="card">
+<h2 id="room"></h2>
+
+<button onclick="toggleReady()">🟢 Ready</button>
+<button onclick="startGame()">▶️ Start Game</button>
+
+<h3>Players</h3>
+<ul id="players"></ul>
 </div>
 
 <script>
-
-// 🔊 SOUNDS
-const nightSound = new Audio("https://actions.google.com/sounds/v1/ambiences/forest_night.ogg");
-const voteSound = new Audio("https://actions.google.com/sounds/v1/cartoon/pop.ogg");
-const killSound = new Audio("https://actions.google.com/sounds/v1/human_voices/scream.ogg");
-const winSound = new Audio("https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg");
-
-// Firebase
-const firebaseConfig = {
-apiKey:"AIzaSyB9xf...",
-authDomain:"nightmind-82dba.firebaseapp.com",
-projectId:"nightmind-82dba"
-};
-
-firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
-const db = firebase.firestore();
 
 const socket = new WebSocket(
 (location.protocol==="https:"?"wss://":"ws://")+location.host
 );
 
-// 🎧 EFFECT FUNCTIONS
-function startNightEffect(){
-nightOverlay.style.opacity=1;
-nightSound.play();
-}
+let playerName="";
 
-function endNightEffect(){
-nightOverlay.style.opacity=0;
-}
-
-function deathEffect(){
-flash.style.opacity=1;
-killSound.play();
-document.body.classList.add("shake");
-
-setTimeout(()=>{
-flash.style.opacity=0;
-document.body.classList.remove("shake");
-},300);
-}
-
-function voteEffect(){
-voteSound.play();
-}
-
-function winEffect(){
-winSound.play();
-}
-
-// 🎮 GAME EVENTS
 socket.onmessage = (e)=>{
 const d = JSON.parse(e.data);
 
-if(d.type==="night_start"){
-startNightEffect();
+// room
+if(d.type==="room_created" || d.type==="room_joined"){
+room.innerText="Room: "+d.code;
 }
 
-if(d.type==="day_start"){
-endNightEffect();
-if(d.dead && d.dead!=="No one") deathEffect();
+// lobby update
+if(d.type==="lobby_update"){
+
+players.innerHTML="";
+
+d.players.forEach(p=>{
+const li=document.createElement("li");
+
+li.innerHTML = `
+${p.name}
+${p.host ? " 👑" : ""}
+<span class="${p.ready ? 'ready' : 'notready'}">
+${p.ready ? "READY" : "NOT READY"}
+</span>
+`;
+
+players.appendChild(li);
+});
 }
 
-if(d.type==="player_killed"){
-deathEffect();
+// game start
+if(d.type==="game_started"){
+alert("Game Started!");
 }
 
-if(d.type==="game_over"){
-winEffect();
-alert("Winner: " + d.message);
+if(d.type==="error"){
+alert(d.message);
 }
 
-if(d.type==="chat"){
-voteEffect();
-}
 };
 
-// AUTH
-function register(){
-auth.createUserWithEmailAndPassword(email.value,password.value);
-}
-
-function login(){
-auth.signInWithEmailAndPassword(email.value,password.value);
-}
-
-function playGuest(){
+// actions
+function createRoom(){
+playerName=name.value;
 socket.send(JSON.stringify({
-type:"quick_play",
-name:name.value || "Guest"
+type:"create_room",
+name:playerName
 }));
 }
 
-function quickPlay(){
-if(!auth.currentUser){ alert("login first"); return; }
-
+function joinRoom(){
+playerName=name.value;
 socket.send(JSON.stringify({
-type:"quick_play",
-name:auth.currentUser.email,
-email:auth.currentUser.email
+type:"join_room",
+name:playerName,
+code:roomCode.value
+}));
+}
+
+function toggleReady(){
+socket.send(JSON.stringify({
+type:"toggle_ready"
+}));
+}
+
+function startGame(){
+socket.send(JSON.stringify({
+type:"start_game"
 }));
 }
 
