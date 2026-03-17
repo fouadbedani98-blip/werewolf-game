@@ -22,20 +22,12 @@ function generateRoomCode() {
 
 // توزيع الأدوار
 function assignRoles(players){
-
-    const roles = [];
-
-    roles.push("werewolf");
-    roles.push("werewolf");
-
-    roles.push("seer");
-    roles.push("doctor");
+    const roles = ["werewolf","werewolf","seer","doctor"];
 
     while(roles.length < players.length){
         roles.push("villager");
     }
 
-    // خلط
     for(let i = roles.length - 1; i > 0; i--){
         const j = Math.floor(Math.random() * (i + 1));
         [roles[i], roles[j]] = [roles[j], roles[i]];
@@ -44,18 +36,18 @@ function assignRoles(players){
     return roles;
 }
 
-// إرسال قائمة اللاعبين
+// إرسال اللاعبين
 function broadcastPlayers(code){
+    const players = rooms[code].players
+        .filter(p => p.alive)
+        .map(p => p.name);
 
-    const players = rooms[code].map(p => p.name);
-
-    rooms[code].forEach(player => {
+    rooms[code].players.forEach(player => {
         player.socket.send(JSON.stringify({
             type:"player_list",
             players:players
         }));
     });
-
 }
 
 wss.on("connection", (ws) => {
@@ -69,14 +61,21 @@ wss.on("connection", (ws) => {
 
             const code = generateRoomCode();
 
-            rooms[code] = [];
+            rooms[code] = {
+                players: [],
+                phase: "lobby",
+                votes: {},
+                nightKill: null
+            };
 
             const player = {
                 name: data.name,
-                socket: ws
+                socket: ws,
+                role: null,
+                alive: true
             };
 
-            rooms[code].push(player);
+            rooms[code].players.push(player);
             ws.room = code;
 
             ws.send(JSON.stringify({
@@ -96,10 +95,12 @@ wss.on("connection", (ws) => {
 
                 const player = {
                     name:data.name,
-                    socket:ws
+                    socket:ws,
+                    role:null,
+                    alive:true
                 };
 
-                rooms[code].push(player);
+                rooms[code].players.push(player);
                 ws.room = code;
 
                 ws.send(JSON.stringify({
@@ -114,24 +115,129 @@ wss.on("connection", (ws) => {
         // بدء اللعبة
         if(data.type === "start_game"){
 
-            const code = ws.room;
-            const room = rooms[code];
-
+            const room = rooms[ws.room];
             if(!room) return;
 
-            const roles = assignRoles(room);
+            const roles = assignRoles(room.players);
 
-            room.forEach((player, index) => {
-
+            room.players.forEach((player, index) => {
                 player.role = roles[index];
 
                 player.socket.send(JSON.stringify({
                     type:"your_role",
                     role:player.role
                 }));
-
             });
 
+            room.phase = "night";
+
+            room.players.forEach(p=>{
+                p.socket.send(JSON.stringify({ type:"night_start" }));
+            });
+        }
+
+        // 🌙 اختيار الضحية
+        if(data.type === "kill"){
+
+            const room = rooms[ws.room];
+            if(!room || room.phase !== "night") return;
+
+            const sender = room.players.find(p=>p.socket===ws);
+
+            if(sender.role !== "werewolf") return;
+
+            room.nightKill = data.target;
+
+            // انتقال للنهار
+            room.phase = "day";
+
+            const victim = room.players.find(p=>p.name === room.nightKill);
+            if(victim) victim.alive = false;
+
+            room.players.forEach(p=>{
+                p.socket.send(JSON.stringify({
+                    type:"day_start",
+                    dead: room.nightKill
+                }));
+            });
+
+            broadcastPlayers(ws.room);
+        }
+
+        // 🗳️ التصويت
+        if(data.type === "vote"){
+
+            const room = rooms[ws.room];
+            if(!room || room.phase !== "day") return;
+
+            room.votes[data.target] = (room.votes[data.target] || 0) + 1;
+
+            const totalVotes = Object.values(room.votes).reduce((a,b)=>a+b,0);
+            const alivePlayers = room.players.filter(p=>p.alive).length;
+
+            if(totalVotes >= alivePlayers){
+
+                let maxVotes = 0;
+                let votedPlayer = null;
+
+                for(let name in room.votes){
+                    if(room.votes[name] > maxVotes){
+                        maxVotes = room.votes[name];
+                        votedPlayer = name;
+                    }
+                }
+
+                const player = room.players.find(p=>p.name===votedPlayer);
+                if(player) player.alive = false;
+
+                room.players.forEach(p=>{
+                    p.socket.send(JSON.stringify({
+                        type:"player_killed",
+                        name:votedPlayer
+                    }));
+                });
+
+                // إعادة
+                room.votes = {};
+                room.phase = "night";
+
+                room.players.forEach(p=>{
+                    p.socket.send(JSON.stringify({ type:"night_start" }));
+                });
+
+                broadcastPlayers(ws.room);
+            }
+        }
+
+        // 💬 الشات
+        if(data.type === "chat"){
+
+            const room = rooms[ws.room];
+            if(!room) return;
+
+            if(room.phase === "night"){
+                const sender = room.players.find(p=>p.socket===ws);
+
+                if(sender.role === "werewolf"){
+                    room.players.forEach(p=>{
+                        if(p.role === "werewolf"){
+                            p.socket.send(JSON.stringify({
+                                type:"chat",
+                                name:data.name,
+                                message:data.message
+                            }));
+                        }
+                    });
+                }
+            } else {
+                room.players.forEach(p=>{
+                    p.socket.send(JSON.stringify({
+                        type:"chat",
+                        name:data.name,
+                        message:data.message
+                    }));
+                });
+            }
         }
 
     });

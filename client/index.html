@@ -1,163 +1,138 @@
-const express = require("express");
-const http = require("http");
-const WebSocket = require("ws");
+<!DOCTYPE html>
+<html>
+<head>
+<title>Werewolf Game</title>
+</head>
 
-const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+<body>
 
-app.use(express.static("client"));
+<h1>🐺 Werewolf Game</h1>
 
-let rooms = {};
+<input id="name" placeholder="Your name">
 
-// إنشاء كود غرفة
-function generateRoomCode() {
-    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    let code = "";
-    for (let i = 0; i < 4; i++) {
-        code += letters[Math.floor(Math.random() * letters.length)];
-    }
-    return code;
+<br><br>
+
+<button onclick="createRoom()">Create Room</button>
+
+<br><br>
+
+<input id="roomCode" placeholder="Room code">
+<button onclick="joinRoom()">Join Room</button>
+
+<h2 id="room"></h2>
+
+<h3 id="phase">Phase: Lobby</h3>
+
+<h3>Players</h3>
+<ul id="players"></ul>
+
+<button onclick="startGame()">Start Game</button>
+
+<h3>Actions</h3>
+<input id="target" placeholder="Target player">
+<button onclick="kill()">Kill (Werewolf)</button>
+<button onclick="vote()">Vote</button>
+
+<h3>Chat</h3>
+<input id="chatInput">
+<button onclick="sendChat()">Send</button>
+
+<ul id="chat"></ul>
+
+<script>
+
+const socket = new WebSocket(
+  (location.protocol === "https:" ? "wss://" : "ws://") + location.host
+);
+
+let playerName="";
+
+socket.onmessage = (event) => {
+
+const data = JSON.parse(event.data);
+
+// دورك
+if(data.type === "your_role"){
+    alert("Your role is: " + data.role);
 }
 
-// توزيع الأدوار
-function assignRoles(players){
-
-    const roles = [];
-
-    roles.push("werewolf");
-    roles.push("werewolf");
-
-    roles.push("seer");
-    roles.push("doctor");
-
-    while(roles.length < players.length){
-        roles.push("villager");
-    }
-
-    // خلط عشوائي
-    for(let i = roles.length - 1; i > 0; i--){
-        const j = Math.floor(Math.random() * (i + 1));
-        [roles[i], roles[j]] = [roles[j], roles[i]];
-    }
-
-    return roles;
+// الليل
+if(data.type === "night_start"){
+    document.getElementById("phase").innerText="Phase: Night 🌙";
 }
 
-// إرسال قائمة اللاعبين
-function broadcastPlayers(code){
+// النهار
+if(data.type === "day_start"){
+    document.getElementById("phase").innerText="Phase: Day ☀️";
+    alert("Player killed: " + data.dead);
+}
 
-    const players = rooms[code].map(p => p.name);
+// قتل بالتصويت
+if(data.type === "player_killed"){
+    alert("Executed: " + data.name);
+}
 
-    rooms[code].forEach(player => {
-        player.socket.send(JSON.stringify({
-            type:"player_list",
-            players:players
-        }));
+// غرفة
+if(data.type==="room_created" || data.type==="room_joined"){
+    document.getElementById("room").innerText="Room: "+data.code;
+}
+
+// لاعبين
+if(data.type==="player_list"){
+    const list=document.getElementById("players");
+    list.innerHTML="";
+    data.players.forEach(p=>{
+        const li=document.createElement("li");
+        li.innerText=p;
+        list.appendChild(li);
     });
-
 }
 
-wss.on("connection", (ws) => {
+// شات
+if(data.type==="chat"){
+    const chat=document.getElementById("chat");
+    const li=document.createElement("li");
+    li.innerText=data.name+": "+data.message;
+    chat.appendChild(li);
+}
 
-    ws.on("message", (message) => {
+};
 
-        const data = JSON.parse(message);
+function createRoom(){
+playerName=document.getElementById("name").value;
+socket.send(JSON.stringify({ type:"create_room", name:playerName }));
+}
 
-        // إنشاء غرفة
-        if(data.type === "create_room"){
+function joinRoom(){
+playerName=document.getElementById("name").value;
+const code=document.getElementById("roomCode").value;
+socket.send(JSON.stringify({ type:"join_room", name:playerName, code:code }));
+}
 
-            const code = generateRoomCode();
+function startGame(){
+socket.send(JSON.stringify({ type:"start_game" }));
+}
 
-            rooms[code] = [];
+function kill(){
+const target=document.getElementById("target").value;
+socket.send(JSON.stringify({ type:"kill", target:target }));
+}
 
-            const player = {
-                name: data.name,
-                socket: ws
-            };
+function vote(){
+const target=document.getElementById("target").value;
+socket.send(JSON.stringify({ type:"vote", target:target }));
+}
 
-            rooms[code].push(player);
-            ws.room = code;
+function sendChat(){
+const message=document.getElementById("chatInput").value;
+socket.send(JSON.stringify({
+type:"chat",
+name:playerName,
+message:message
+}));
+}
 
-            ws.send(JSON.stringify({
-                type:"room_created",
-                code:code
-            }));
+</script>
 
-            broadcastPlayers(code);
-        }
-
-        // دخول غرفة
-        if(data.type === "join_room"){
-
-            const code = data.code;
-
-            if(rooms[code]){
-
-                const player = {
-                    name:data.name,
-                    socket:ws
-                };
-
-                rooms[code].push(player);
-                ws.room = code;
-
-                ws.send(JSON.stringify({
-                    type:"room_joined",
-                    code:code
-                }));
-
-                broadcastPlayers(code);
-            }
-        }
-
-        // بدء اللعبة
-        if(data.type === "start_game"){
-
-            const code = ws.room;
-            const room = rooms[code];
-
-            if(!room) return;
-
-            const roles = assignRoles(room);
-
-            room.forEach((player, index) => {
-
-                player.role = roles[index];
-
-                player.socket.send(JSON.stringify({
-                    type:"your_role",
-                    role:player.role
-                }));
-
-            });
-
-        }
-
-        // الدردشة
-        if(data.type === "chat"){
-
-            const code = ws.room;
-            const room = rooms[code];
-
-            if(!room) return;
-
-            room.forEach(player => {
-
-                player.socket.send(JSON.stringify({
-                    type:"chat",
-                    name:data.name,
-                    message:data.message
-                }));
-
-            });
-
-        }
-
-    });
-
-});
-
-server.listen(3000, ()=>{
-    console.log("Server running at http://localhost:3000");
-});
+</body>
+</html>
