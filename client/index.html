@@ -8,9 +8,91 @@
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
 <style>
-body { background:#0f172a; color:white; text-align:center; font-family:sans-serif;}
-.card { background:#1e293b; padding:20px; margin:10px auto; width:320px; border-radius:15px;}
-button { padding:10px; margin:5px; background:#ef4444; border:none; color:white;}
+
+/* 🌌 BACKGROUND */
+body{
+margin:0;
+font-family:Arial;
+background: radial-gradient(circle at top, #1e293b, #020617);
+color:white;
+text-align:center;
+}
+
+/* 🧠 TITLE */
+h1{
+font-size:40px;
+margin:20px;
+color:#f43f5e;
+text-shadow:0 0 20px #f43f5e;
+}
+
+/* 📦 CARD */
+.card{
+background:rgba(30,41,59,0.8);
+backdrop-filter:blur(10px);
+padding:20px;
+margin:15px auto;
+width:320px;
+border-radius:15px;
+box-shadow:0 0 20px rgba(0,0,0,0.5);
+animation:fadeIn 0.8s ease;
+}
+
+/* ✨ BUTTON */
+button{
+padding:10px;
+margin:5px;
+border:none;
+border-radius:10px;
+background:#ef4444;
+color:white;
+cursor:pointer;
+transition:0.2s;
+}
+
+button:hover{
+transform:scale(1.1);
+background:#f87171;
+box-shadow:0 0 10px #f87171;
+}
+
+/* INPUT */
+input{
+padding:10px;
+margin:5px;
+border-radius:8px;
+border:none;
+width:80%;
+}
+
+/* 🧠 XP BAR */
+.xp-bar{
+height:10px;
+background:#334155;
+border-radius:10px;
+overflow:hidden;
+margin-top:5px;
+}
+
+.xp-fill{
+height:100%;
+background:linear-gradient(90deg,#22c55e,#4ade80);
+width:0%;
+}
+
+/* 🏆 LEADERBOARD */
+li{
+list-style:none;
+padding:5px;
+border-bottom:1px solid #334155;
+}
+
+/* 🎬 ANIMATION */
+@keyframes fadeIn{
+from{opacity:0;transform:translateY(10px);}
+to{opacity:1;transform:translateY(0);}
+}
+
 </style>
 </head>
 
@@ -18,28 +100,37 @@ button { padding:10px; margin:5px; background:#ef4444; border:none; color:white;
 
 <h1>🐺 NightMind</h1>
 
+<!-- 🎮 PLAY -->
 <div class="card">
-<input id="name" placeholder="Name"><br><br>
-<button onclick="playGuest()">🎮 Guest</button>
+<input id="name" placeholder="Enter name">
+<br>
+<button onclick="playGuest()">🎮 Play as Guest</button>
 <button onclick="quickPlay()">⚡ Quick Match</button>
 </div>
 
+<!-- 🔐 AUTH -->
 <div class="card">
-<input id="email" placeholder="Email"><br><br>
-<input id="password" type="password" placeholder="Password"><br><br>
+<input id="email" placeholder="Email"><br>
+<input id="password" type="password" placeholder="Password"><br>
 <button onclick="register()">Register</button>
 <button onclick="login()">Login</button>
 <p id="userInfo"></p>
 </div>
 
+<!-- 👤 PROFILE -->
 <div class="card">
 <h2>👤 Profile</h2>
 <p id="profileEmail"></p>
 <p id="profileLevel"></p>
 <p id="profileRank"></p>
 <p id="profileXP"></p>
+
+<div class="xp-bar">
+<div id="xpFill" class="xp-fill"></div>
+</div>
 </div>
 
+<!-- 🏆 LEADERBOARD -->
 <div class="card">
 <h2>🏆 Leaderboard</h2>
 <ul id="leaderboard"></ul>
@@ -63,7 +154,7 @@ const socket = new WebSocket(
 (location.protocol==="https:"?"wss://":"ws://")+location.host
 );
 
-// XP SYSTEM
+// 🎯 XP SYSTEM
 function getLevel(xp){
 return Math.floor(0.1 * Math.sqrt(xp)) + 1;
 }
@@ -77,7 +168,12 @@ if(xp < 10000) return "Diamond";
 return "Master";
 }
 
-// AUTH
+function getXPPercent(xp){
+const next = (getLevel(xp)+1)**2 * 100;
+return (xp/next)*100;
+}
+
+// 🔐 AUTH
 function register(){
 auth.createUserWithEmailAndPassword(email.value,password.value)
 .then(()=>createUserDoc(auth.currentUser));
@@ -90,7 +186,7 @@ auth.signInWithEmailAndPassword(email.value,password.value);
 function playGuest(){
 socket.send(JSON.stringify({
 type:"quick_play",
-name:name.value
+name:name.value || "Guest"
 }));
 }
 
@@ -104,7 +200,7 @@ email:auth.currentUser.email
 }));
 }
 
-// Create user
+// 👤 Create User
 function createUserDoc(user){
 db.collection("users").doc(user.uid).set({
 email:user.email,
@@ -118,7 +214,7 @@ joinDate:new Date()
 });
 }
 
-// PROFILE UI
+// 👤 PROFILE UPDATE
 auth.onAuthStateChanged(async user=>{
 if(user){
 
@@ -132,11 +228,14 @@ profileLevel.innerText="Level: "+d.level;
 profileRank.innerText="Rank: "+d.rank;
 profileXP.innerText="XP: "+d.xp;
 
+// 🎯 XP BAR
+xpFill.style.width = getXPPercent(d.xp) + "%";
+
 loadLeaderboard();
 }
 });
 
-// UPDATE STATS
+// 📊 UPDATE STATS
 socket.onmessage = async (e)=>{
 const d = JSON.parse(e.data);
 
@@ -158,11 +257,11 @@ level: getLevel(newXP),
 rank: getRank(newXP)
 });
 
-alert("XP +" + xpGain);
+alert("🎉 +" + xpGain + " XP");
 }
 };
 
-// Leaderboard
+// 🏆 LEADERBOARD
 async function loadLeaderboard(){
 
 leaderboard.innerHTML="Loading...";
